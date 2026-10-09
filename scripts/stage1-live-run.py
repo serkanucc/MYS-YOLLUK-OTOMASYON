@@ -190,10 +190,10 @@ def main():
             step("MYS kayıtları kontrol ediliyor");q=duplicate(x)
             matches=classify_candidates(q.get("candidates",[]),x)
             if matches:
-                warning="ÇAKIŞMA UYARISI: Mevcut/çakışan yolluk bulundu. Sistem kullanıcı onayı beklemeden yeni yolluk için devam ediyor."
+                warning="MEVCUT KAYIT BİLGİSİ: Aynı personel için yolluk kaydı bulundu (aynı tarihlerde dahi olabilir — normal durum). Onay gerekmiyor; otomasyon devam ediyor."
                 save(x,"DUPLICATE_WARNING_CONTINUING",matches=matches,approvalGranted=False,warning=warning)
                 log(f"DUPLICATE_WARNING_CONTINUING assignment={x['assignmentId']} matches={len(matches)} -> devam ediliyor")
-                step("Çakışma bulundu", "Uyarı gösterildi; onay beklenmeden devam ediliyor.")
+                step("Mevcut kayıt bulundu", "Bilgi amaçlı: aynı tarihlerde dahi yeni işlem açılabilir; onay beklemeden deviliyor.")
         # Formu açmadan hemen önce listeyi bir kez daha tazele; mevcut kayıt ID'lerini referans al.
         step("Yeni form açılıyor");baseline_q=query_yolluk_list(x["tckn"])
         baseline_ids=set()

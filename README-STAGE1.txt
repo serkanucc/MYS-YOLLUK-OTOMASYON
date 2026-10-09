@@ -17,9 +17,10 @@ GÖREV KİMLİĞİ
 - MYS sorgusu önce aynı TCKN kayıtlarını getirir.
 - Tarihler birebir aynıysa EXACT uyarısı üretilir.
 - Tarihler kesişiyorsa OVERLAP uyarısı üretilir.
-- Tarih ayrıştırılamıyorsa AMBIGUOUS olarak sınıflandırılır; bu durum artık kullanıcı onayı bekletmez, açık uyarı ile loglanarak devam edilir.
-- Uyarı engel değildir: çakışma/aynı gün durumu kontrol panelinde açıkça gösterilir ve otomasyon kullanıcı onayı beklemeden devam eder.
-- Onay checkpoint'i kullanılmaz; `DUPLICATE_WARNING_CONTINUING` durumu ile uyarı kayda alınır.
+- Bir personel için birden çok yolluk kaydı bulunabilir; aynı tarih aralığında dahi yeni işlem açılabilir. Bu durum hata değildir, yalnızca bilgilendirme amaçlıdır.
+- Tarih ayrıştırılamıyorsa AMBIGUOUS olarak sınıflandırılır; bu durum kullanıcı onayı beklemez, açık bilgi ile loglanarak devam edilir.
+- Uyarı engel değildir: mevcut/kayıt bilgisi kontrol panelinde açıkça gösterilir ve otomasyon onay beklemeden devam eder.
+- Onay checkpoint'i kullanılmaz; `DUPLICATE_WARNING_CONTINUING` durumu ile bilgi kayda alınır.
 - Bu yapı geriye dönük eksik ödeme düzeltmelerini mümkün bırakır.
 
 DOSYALAR
@@ -36,7 +37,7 @@ DOSYALAR
 GÜVENLİ ÇALIŞMA
 - Canlı gönderim varsayılan olarak kapalıdır.
 - Kullanıcı açık canlı onayı vermeden gerçek kayıt oluşturulmaz.
-- Çakışma uyarısı kullanıcı onayı olmadan geçilemez.
+- Mevcut kayıt bilgisi engel değildir; kullanıcı onayı gerekmez, otomasyon devam eder.
 - Yolluk Süreç ana sayfasındaki liste, Sorgula yapılmadan güvenilir kabul edilmez.
 - Ana sayfaya her girişte/geri dönüşte liste okunacaksa MUTLAKA Sorgula yapılır ve sonuç yenilenir.
 - Kayıt sonrası MYS'nin boş listeyle ana sayfaya dönmesi normaldir; kayıt başarısız kabul edilmez, önce Sorgula yapılır.

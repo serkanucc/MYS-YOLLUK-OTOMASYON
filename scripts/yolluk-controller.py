@@ -106,7 +106,7 @@ function setAlert(text,wait=false){let a=document.getElementById('alert');a.text
 let actionMsg={text:'',until:0};
 function stateText(s){
  let x=s.last||{},st=x.status||'IDLE';
- const map={PROCESSING:'İşlem yapılıyor',WAITING_FOR_USER_APPROVAL:'Eski durum',DUPLICATE_APPROVED:'Eski durum',DUPLICATE_WARNING_CONTINUING:'Çakışma bulundu — devam ediliyor',READY_TO_SUBMIT:'Form hazır — gönderilmedi',ERROR:'İŞLEM DURDU — HATA',STAGE1_COMPLETED:'Tamamlandı',SUBMITTING:'Canlı kayıt gönderiliyor',SUBMITTED_UNVERIFIED:'Gönderildi — doğrulama bekleniyor',AMBIGUOUS_DUPLICATE:'Tarih belirsizliği — uyarıyla devam ediliyor'};
+ const map={PROCESSING:'İşlem yapılıyor',WAITING_FOR_USER_APPROVAL:'Eski durum',DUPLICATE_APPROVED:'Eski durum',DUPLICATE_WARNING_CONTINUING:'Mevcut kayıt var — devam ediliyor (bilgi)',READY_TO_SUBMIT:'Form hazır — gönderilmedi',ERROR:'İŞLEM DURDU — HATA',STAGE1_COMPLETED:'Tamamlandı',SUBMITTING:'Canlı kayıt gönderiliyor',SUBMITTED_UNVERIFIED:'Gönderildi — doğrulama bekleniyor',AMBIGUOUS_DUPLICATE:'Tarih belirsizliği — bilgiyle devam ediliyor'};
  return [map[st]||st,st]
 }
 async function refresh(){
@@ -127,8 +127,8 @@ async function refresh(){
  let warning='';
  if(st==='ERROR')warning='⛔ İŞLEM DURDU: '+(x.message||'Hata oluştu.');
  else if(st==='WAITING_FOR_USER_APPROVAL')warning='⚠ Eski durum: bu proje artık çakışma için kullanıcı onayı beklemiyor.';
- else if(st==='DUPLICATE_WARNING_CONTINUING')warning='⚠ UYARI: Çakışan kayıt bulundu. Sistem durmadan yeni yolluk işlemiyle devam ediyor.';
- else if(st==='AMBIGUOUS_DUPLICATE')warning='⚠ UYARI: Tarih sınıflandırması belirsiz; proje kuralına göre onay beklenmeden devam ediliyor.';
+ else if(st==='DUPLICATE_WARNING_CONTINUING')warning='ℹ BİLGİ: Aynı personel için mevcut yolluk kaydı bulundu (aynı tarihlerde dahi olabilir). Normal durum; onay beklemeden devam ediliyor.';
+ else if(st==='AMBIGUOUS_DUPLICATE')warning='ℹ BİLGİ: Mevcut kayıt tarihleri güvenle ayrıştırılamadı; onay beklemeden devam ediliyor.';
  setAlert(warning||((Date.now()<actionMsg.until)?actionMsg.text:''),st!=='ERROR');
  let lu=document.getElementById('live');if(lu)lu.textContent='● OTOMATİK YENİLENİYOR '+new Date().toLocaleTimeString('tr-TR');
  }catch(e){setAlert('⚠ Panelden sunucuya ulaşılamıyor — http://127.0.0.1:8765 sayfasını yenileyin ('+e.message+')',true)}
