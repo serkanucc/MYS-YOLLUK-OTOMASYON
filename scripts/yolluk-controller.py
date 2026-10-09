@@ -129,6 +129,7 @@ async function refresh(){
  else if(st==='WAITING_FOR_USER_APPROVAL')warning='⚠ Eski durum: bu proje artık çakışma için kullanıcı onayı beklemiyor.';
  else if(st==='DUPLICATE_WARNING_CONTINUING')warning='ℹ BİLGİ: Aynı personel için mevcut yolluk kaydı bulundu (aynı tarihlerde dahi olabilir). Normal durum; onay beklemeden devam ediliyor.';
  else if(st==='AMBIGUOUS_DUPLICATE')warning='ℹ BİLGİ: Mevcut kayıt tarihleri güvenle ayrıştırılamadı; onay beklemeden devam ediliyor.';
+ else if(s.runnerRunning&&steps.length&&steps[steps.length-1].label==='Playwright bağlantısı bekleniyor')warning='ℹ BİLGİ: Playwright/Chrome oturumu (chrome-main) bağlanmayı bekliyor — hata değil. Tarayıcı oturumu açık değilse açın; bağlantı kurulunca otomatik devam eder.';
  setAlert(warning||((Date.now()<actionMsg.until)?actionMsg.text:''),st!=='ERROR');
  let lu=document.getElementById('live');if(lu)lu.textContent='● OTOMATİK YENİLENİYOR '+new Date().toLocaleTimeString('tr-TR');
  }catch(e){setAlert('⚠ Panelden sunucuya ulaşılamıyor — http://127.0.0.1:8765 sayfasını yenileyin ('+e.message+')',true)}
