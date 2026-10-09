@@ -98,7 +98,10 @@ def read_amir_tckn(wb):
             label=str(v).strip() if v is not None else ""
             if label and re.search(r"(?:TC|TCKN)$",label,re.I) and j+1<len(row):
                 val=row[j+1]
-                digits=re.sub(r"\\D","",str(val)) if val is not None else ""
+                if isinstance(val,float) and val.is_integer(): raw=str(int(val))
+                elif isinstance(val,int): raw=str(val)
+                else: raw=str(val) if val is not None else ""
+                digits=re.sub(r"\D","",raw)
                 if len(digits)==11: return digits
     raise RuntimeError("Excel 2. sayfada Birim Amiri TC/TCKN bulunamadı. Güncel amir TCKN'sini 2. sayfaya girin.")
 
