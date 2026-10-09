@@ -98,17 +98,19 @@ button:disabled{opacity:.45;cursor:not-allowed}.info{background:#f7f9fb;border-r
 <div class="card" style="margin-top:14px"><h2>Son işlem</h2><div id="detail" class="detail">-</div></div>
 <div class="card" style="margin-top:14px"><h2>Durum özeti</h2><div id="counts" class="counts">-</div></div>
 </div>
-<div class="card logcard"><div class="loghead"><h2 style="margin:0">Canlı İşlem Günlüğü</h2><span class="live">● OTOMATİK YENİLENİYOR</span></div><div id="log" class="log">Log bekleniyor...</div></div>
+<div class="card logcard"><div class="loghead"><h2 style="margin:0">Canlı İşlem Günlüğü</h2><span id="live" class="live">● OTOMATİK YENİLENİYOR</span></div><div id="log" class="log">Log bekleniyor...</div></div>
 </div></div>
 <script>
 async function api(p,o){let r=await fetch(p,Object.assign({cache:"no-store"},o||{}));let t=await r.text();try{return JSON.parse(t)}catch(e){throw new Error("Sunucu cevabı okunamadı: "+t.slice(0,120))}}
 function setAlert(text,wait=false){let a=document.getElementById('alert');a.textContent=text;a.className='alert'+(text?' show':'')+(wait?' wait':'')}
+let actionMsg={text:'',until:0};
 function stateText(s){
  let x=s.last||{},st=x.status||'IDLE';
  const map={PROCESSING:'İşlem yapılıyor',WAITING_FOR_USER_APPROVAL:'Eski durum',DUPLICATE_APPROVED:'Eski durum',DUPLICATE_WARNING_CONTINUING:'Çakışma bulundu — devam ediliyor',READY_TO_SUBMIT:'Form hazır — gönderilmedi',ERROR:'İŞLEM DURDU — HATA',STAGE1_COMPLETED:'Tamamlandı',SUBMITTING:'Canlı kayıt gönderiliyor',SUBMITTED_UNVERIFIED:'Gönderildi — doğrulama bekleniyor',AMBIGUOUS_DUPLICATE:'Tarih belirsizliği — uyarıyla devam ediliyor'};
  return [map[st]||st,st]
 }
 async function refresh(){
+ try{
  let s=await api('/api/status'), [label,st]=stateText(s);
  document.getElementById('state').textContent=s.runnerRunning?'● '+label:label;
  document.getElementById('stateSub').textContent=s.runnerRunning?'Otomasyon aktif.':(st==='ERROR'?'Güvenli noktada durdu. Ayrıntı aşağıda ve logda.':st==='WAITING_FOR_USER_APPROVAL'?'Çakışma bulundu. Devam için onay gerekiyor.':'Otomasyon şu anda çalışmıyor.');
@@ -116,21 +118,23 @@ async function refresh(){
  let x=s.last||{}, detail='<b>Durum:</b> '+(x.status||'-')+'<br><b>Satır:</b> '+(x.row||'-')+'<br><b>Tarih:</b> '+(x.mysStart||'-')+' → '+(x.mysEnd||'-');
  if(x.warning)detail+='<br><b>Uyarı:</b> '+x.warning;if(x.message)detail+='<br><b>Hata:</b> '+x.message;
  document.getElementById('detail').innerHTML=detail;
- let st=s.steps||[];
+ let steps=s.steps||[];
  let boxSteps=document.getElementById('steps');
- boxSteps.innerHTML=st.length?st.map((z,i)=>'<div class="step"><span class="num">'+(i+1)+'. '+z.label+'</span> <span class="time">'+z.time+'</span><div class="desc">'+(z.detail||'')+'</div></div>').join(''):'-';
+ boxSteps.innerHTML=steps.length?steps.map((z,i)=>'<div class="step"><span class="num">'+(i+1)+'. '+z.label+'</span> <span class="time">'+z.time+'</span><div class="desc">'+(z.detail||'')+'</div></div>').join(''):'-';
  boxSteps.scrollTop=boxSteps.scrollHeight;
  let c={};Object.values(s.records||{}).forEach(x=>c[x.status]=(c[x.status]||0)+1);document.getElementById('counts').innerHTML=Object.entries(c).map(([k,v])=>'<span class="pill">'+k+': '+v+'</span>').join('')||'-';
- let l=await api('/api/log');let box=document.getElementById('log');let old=box.scrollTop,atBottom=box.scrollHeight-box.clientHeight-old<80;box.textContent=l.lines.join('\n');if(atBottom)box.scrollTop=box.scrollHeight;
+ let l=await api('/api/log');let box=document.getElementById('log');let old=box.scrollTop,atBottom=box.scrollHeight-box.clientHeight-old<80;box.textContent=l.lines.length?l.lines.join('\n'):'Log bekleniyor... (günlük boş — işlem başlayınca satırlar buraya düşer)';if(atBottom)box.scrollTop=box.scrollHeight;
  let warning='';
  if(st==='ERROR')warning='⛔ İŞLEM DURDU: '+(x.message||'Hata oluştu.');
  else if(st==='WAITING_FOR_USER_APPROVAL')warning='⚠ Eski durum: bu proje artık çakışma için kullanıcı onayı beklemiyor.';
  else if(st==='DUPLICATE_WARNING_CONTINUING')warning='⚠ UYARI: Çakışan kayıt bulundu. Sistem durmadan yeni yolluk işlemiyle devam ediyor.';
  else if(st==='AMBIGUOUS_DUPLICATE')warning='⚠ UYARI: Tarih sınıflandırması belirsiz; proje kuralına göre onay beklenmeden devam ediliyor.';
- setAlert(warning,st!=='ERROR');
+ setAlert(warning||((Date.now()<actionMsg.until)?actionMsg.text:''),st!=='ERROR');
+ let lu=document.getElementById('live');if(lu)lu.textContent='● OTOMATİK YENİLENİYOR '+new Date().toLocaleTimeString('tr-TR');
+ }catch(e){setAlert('⚠ Panelden sunucuya ulaşılamıyor — http://127.0.0.1:8765 sayfasını yenileyin ('+e.message+')',true)}
 }
-async function run(args){setAlert('⏳ Komut gönderiliyor...',true);try{let r=await api('/api/start',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({args})});setAlert(r.message,!!r.ok);await refresh()}catch(e){setAlert('⛔ Panel hatası: '+e.message)}}
-async function stopRun(){setAlert('⏳ Durdurma komutu gönderiliyor...',true);try{let r=await api('/api/stop',{method:'POST'});setAlert(r.message,!!r.ok);await refresh()}catch(e){setAlert('⛔ Panel hatası: '+e.message)}}
+async function run(args){actionMsg={text:'⏳ Komut gönderiliyor...',until:Date.now()+30000};setAlert(actionMsg.text,true);try{let r=await api('/api/start',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({args})});actionMsg={text:r.message,until:Date.now()+6000};setAlert(r.message,!!r.ok);await refresh()}catch(e){actionMsg={text:'⛔ Panel hatası: '+e.message,until:Date.now()+15000};setAlert(actionMsg.text,true)}}
+async function stopRun(){actionMsg={text:'⏳ Durdurma komutu gönderiliyor...',until:Date.now()+15000};setAlert(actionMsg.text,true);try{let r=await api('/api/stop',{method:'POST'});actionMsg={text:r.message,until:Date.now()+6000};setAlert(r.message,!!r.ok);await refresh()}catch(e){actionMsg={text:'⛔ Panel hatası: '+e.message,until:Date.now()+15000};setAlert(actionMsg.text,true)}}
 refresh();setInterval(refresh,1000)
 </script></body></html>'''
 
