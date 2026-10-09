@@ -1,0 +1,7 @@
+{
+  "stage": "STAGE1",
+  "mode": "DRY_RUN",
+  "sourceWorkbook": "C:\\Users\\serkan.suc\\Desktop\\YOLLUKLAR\\2026\\LİSTE 7\\Yolluk Liste 7.xlsx",
+  "chatControlled": true,
+  "humanApprovalRequiredForOverlap": false
+}

@@ -1,0 +1,15 @@
+{
+  "rowNumber": "SIRANO",
+  "identityNo": "TC NO",
+  "firstName": "AD",
+  "lastName": "SOYAD",
+  "title": "UNVAN",
+  "degree": "DERECE",
+  "step": "KADEME",
+  "additionalIndicator": "EK GÖSTERGE",
+  "dailyAmount": "GÜNDELİĞİ",
+  "dutyDates": "GEÇ. GÖREV TARİHİ",
+  "dayCount": "GÜN SAYISI",
+  "iban": "IBAN",
+  "unitManagerTckn": "2. sayfa: TC/TCKN etiketli hücrenin sağındaki 11 haneli değer"
+}

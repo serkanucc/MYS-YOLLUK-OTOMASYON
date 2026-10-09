@@ -1,0 +1,15 @@
+{
+  "browserSession": "chrome-main",
+  "formUrl": "https://butunlesik.hmb.gov.tr/hys/mys-yollukislemleri/yolluk/add",
+  "queryUrl": "https://butunlesik.hmb.gov.tr/hys/mys-yollukislemleri/yolluk",
+  "liveSubmissionEnabled": false,
+  "stopBeforeLiveSubmit": true,
+  "duplicateProtection": true,
+  "onePersonAtATime": true,
+  "saveScreenshotsOnError": true,
+  "sourceWorkbook": "C:\\Users\\serkan.suc\\Desktop\\YOLLUKLAR\\2026\\LİSTE 7\\Yolluk Liste 7.xlsx",
+  "fixedValuesFile": "config\\fixed-values.json",
+  "checkpointFile": "data\\checkpoint.json",
+  "logFile": "logs\\stage1.log",
+  "submitEndpoint": "/yolluk/ekle"
+}

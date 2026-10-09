@@ -1,0 +1,12 @@
+{
+  "PROCESSING": "Görev üzerinde işlem sürüyor",
+  "ERROR": "İşlem güvenli noktada durdu",
+  "DATA_READY": "Excel ve MYS verileri doğrulandı",
+  "READY_TO_SUBMIT": "MYS formu tamamlandı; canlı gönderim için hazır",
+  "STAGE1_COMPLETED": "Yolluk Süreç Hazırlama kaydı sunucuda doğrulandı",
+  "WAITING_FOR_USER_APPROVAL": "Eski durum: çakışma için kullanıcı onayı bekleniyordu; artık kullanılmıyor",
+  "DUPLICATE_WARNING_CONTINUING": "Mevcut/çakışan kayıt bulundu; uyarı gösterildi ve otomasyon onay beklemeden devam etti",
+  "DUPLICATE_APPROVED": "Mevcut/çakışan kayıt uyarısı kullanıcı tarafından onaylandı",
+  "AMBIGUOUS_DUPLICATE": "Mevcut kayıt bulundu ancak görev tarihleri güvenle ayrıştırılamadı",
+  "USER_INFORMATION_REQUIRED": "Gerekli Excel bilgisi eksik; kullanıcıdan güncel bilgi isteniyor"
+}

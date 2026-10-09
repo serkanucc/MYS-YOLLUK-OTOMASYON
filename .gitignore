@@ -1,0 +1,20 @@
+# Runtime output and browser-generated files
+logs/
+screenshots/
+data/excel-dry-output.json
+data/last-flow.js
+data/live-steps.json
+data/run-summary.json
+
+# Sensitive local material and historical copies
+BACKUP/
+*.zip
+
+# Machine-specific settings
+config/runner-settings.runtime.json
+.env
+
+# Python and editor state
+__pycache__/
+*.py[cod]
+.vscode/
