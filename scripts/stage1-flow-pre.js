@@ -41,6 +41,18 @@ const retrySelect=async(label,text)=>{
 const forceIbanReset="{{FORCE_IBAN}}"==="true";const tckn="{{TCKN}}",iban="{{IBAN}}",daily="{{DAILY}}",amirTckn="{{AMIR_TCKN}}";
 setInput(field("Kimlik No"),tckn);await sleep(250);document.querySelector("[data-testid=kisiAraButton]").click();await sleep(1000);
 button("Mernis'ten Güncelle");await sleep(700);button("Maaş Güncelle");await sleep(900);
+/* NEDEN: Mernis yalnızca GEÇERLİ/gerçek TCKN'de personel döndürür. TCKN geçersizse Ad Soyad,
+   Unvan gibi alanlar boş kalır; IBAN ve Birim Amiri TCKN alanları DOM'da hiç oluşmaz.
+   Bu bir hata değil DURUM: tahmin yapmadan güvenle durup motora bildir (personelBulunamadi). */
+const personelAdi=()=>{
+  for(const t of ["Adı Soyadı","Ad Soyadı","Adı ve Soyadı","Ad Soyad"]){
+    try{const v=(inputOf(field(t))?.value||"").trim();if(v)return v;}catch(e){}
+  }
+  return "";
+};
+let pAdi="";
+for(let i=0;i<24;i++){await sleep(250);pAdi=personelAdi();if(pAdi)break;}
+if(!pAdi)return {personelBulunamadi:true,tckn:tckn,needsIbanCommit:false};
 const ib=field("IBAN"),ibanNorm=norm(iban);
 const vals=()=>[...ib.querySelectorAll(".yte-power-select-multiple-selected-option-label")].map(x=>norm(x.innerText));
 if(forceIbanReset||!vals().includes(ibanNorm)){

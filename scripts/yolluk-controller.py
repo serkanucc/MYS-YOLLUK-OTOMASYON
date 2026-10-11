@@ -1,14 +1,21 @@
 import argparse, json, subprocess, sys, threading, time, shutil
+from email import policy
+from email.parser import BytesParser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlparse
 
 ROOT=Path(__file__).resolve().parents[1]
+sys.path.insert(0,str(ROOT/"scripts"))
+from workbook_support import create_template,validate_workbook
+
 CFG=ROOT/"config/runner-settings.json"
 CHECK=ROOT/"data/checkpoint.json"
 LOG=ROOT/"logs/stage1.log"
 steps=ROOT/"data/live-steps.json"
 RUNNER=ROOT/"scripts/stage1-live-run.py"
+UPLOADED_WORKBOOK=ROOT/"data"/"uploaded-workbook.xlsx"
+MAX_WORKBOOK_BYTES=20*1024*1024
 PROC=None
 LOCK=threading.Lock()
 
@@ -27,6 +34,7 @@ def status():
         "records":records,
         "steps":live_steps(),
         "runnerRunning":PROC is not None and PROC.poll() is None,
+        "uploadedWorkbookReady":UPLOADED_WORKBOOK.exists(),
         "liveLocked":not (read_json(CFG,{}).get("liveSubmissionEnabled",False) and not read_json(CFG,{}).get("stopBeforeLiveSubmit",True))
     }
 
@@ -42,6 +50,9 @@ def start(args):
     global PROC
     with LOCK:
         if PROC is not None and PROC.poll() is None:return False,"Otomasyon zaten çalışıyor."
+        # Panelden yüklenen dosya varsa, isim/yol değişikliklerinden etkilenmeden onu kullan.
+        if UPLOADED_WORKBOOK.exists():
+            args=list(args)+["--excel",str(UPLOADED_WORKBOOK)]
         if LOG.exists() and LOG.stat().st_size:
             archive=ROOT/"logs"/"archive"
             archive.mkdir(parents=True,exist_ok=True)
@@ -81,6 +92,7 @@ button:disabled{opacity:.45;cursor:not-allowed}.info{background:#f7f9fb;border-r
 .steps{max-height:430px;overflow:auto;border:1px solid #e5e9ef;border-radius:8px;padding:5px 10px;background:#fbfcfd}
 .step{padding:8px 2px;border-bottom:1px solid #e9edf2}
 .step:last-child{border-bottom:0}.step .num{font-weight:800}.step .time{font-size:11px;color:#667085;margin-right:7px}.step .desc{font-size:12px;color:#475467;margin-top:2px}
+.upload{margin-top:14px}.upload input{width:100%;margin:4px 0 8px}.upload .buttons{grid-template-columns:1fr 1fr}.upload button{padding:10px;text-align:center}.uploadStatus{font-size:12px;min-height:18px;margin-top:8px;color:#475467}
 @media(max-width:900px){.layout{grid-template-columns:1fr}.log{height:450px}}
 </style></head><body><div class="wrap">
 <div class="top"><div><h1>MYS Yolluk Otomasyon</h1><div class="sub">Aşama 1 • Excel → Yolluk Süreç Hazırlama</div></div><div id="badge" class="badge stop">DURDU</div></div>
@@ -94,6 +106,11 @@ button:disabled{opacity:.45;cursor:not-allowed}.info{background:#f7f9fb;border-r
 <button class="danger" onclick="stopRun()">■ Durdur</button>
 </div>
 <div class="info">Çakışma bulunursa ekranda <b>açık uyarı</b> gösterilir ama otomasyon durmaz; yeni yolluk işlemiyle otomatik devam eder. Teknik ayrıntılar alttaki logda tutulur.</div></div>
+<div class="card upload"><h2>Excel dosyası</h2><div class="muted">Dosya adından ve konumundan bağımsız olarak Excel’i buradan yükleyebilirsiniz.</div>
+<input id="workbookFile" type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet">
+<div class="buttons"><button class="primary" onclick="uploadWorkbook()">Excel’i Yükle</button><button class="safe" onclick="location.href='/api/template'">Boş şablonu indir</button></div>
+<div id="uploadStatus" class="uploadStatus">Yüklenmiş Excel yok; ayarlardaki yol kullanılacak.</div>
+<div class="info">Şablonda personel satırlarını ve Birim Amiri sayfasındaki TC/TCKN değerini doldurun. Yükleme yerel bilgisayarda saklanır.</div></div>
 <div class="card" style="margin-top:14px"><h2>İşlem adımları <span class="muted">• canlı</span></h2><div id="steps" class="steps">-</div></div>
 <div class="card" style="margin-top:14px"><h2>Son işlem</h2><div id="detail" class="detail">-</div></div>
 <div class="card" style="margin-top:14px"><h2>Durum özeti</h2><div id="counts" class="counts">-</div></div>
@@ -104,6 +121,14 @@ button:disabled{opacity:.45;cursor:not-allowed}.info{background:#f7f9fb;border-r
 async function api(p,o){let r=await fetch(p,Object.assign({cache:"no-store"},o||{}));let t=await r.text();try{return JSON.parse(t)}catch(e){throw new Error("Sunucu cevabı okunamadı: "+t.slice(0,120))}}
 function setAlert(text,wait=false){let a=document.getElementById('alert');a.textContent=text;a.className='alert'+(text?' show':'')+(wait?' wait':'')}
 let actionMsg={text:'',until:0};
+async function uploadWorkbook(){
+ const input=document.getElementById('workbookFile'),status=document.getElementById('uploadStatus');
+ if(!input.files.length){status.textContent='Önce bir .xlsx dosyası seçin.';return}
+ const file=input.files[0],body=new FormData();body.append('workbook',file,file.name);
+ status.textContent='Excel doğrulanıyor ve yükleniyor...';
+ try{const result=await api('/api/upload',{method:'POST',body});status.textContent=result.message;await refresh()}
+ catch(e){status.textContent='Yükleme başarısız: '+e.message}
+}
 function stateText(s){
  let x=s.last||{},st=x.status||'IDLE';
  const map={PROCESSING:'İşlem yapılıyor',WAITING_FOR_USER_APPROVAL:'Eski durum',DUPLICATE_APPROVED:'Eski durum',DUPLICATE_WARNING_CONTINUING:'Mevcut kayıt var — devam ediliyor (bilgi)',READY_TO_SUBMIT:'Form hazır — gönderilmedi',ERROR:'İŞLEM DURDU — HATA',STAGE1_COMPLETED:'Tamamlandı',SUBMITTING:'Canlı kayıt gönderiliyor',SUBMITTED_UNVERIFIED:'Gönderildi — doğrulama bekleniyor',AMBIGUOUS_DUPLICATE:'Tarih belirsizliği — bilgiyle devam ediliyor'};
@@ -112,6 +137,8 @@ function stateText(s){
 async function refresh(){
  try{
  let s=await api('/api/status'), [label,st]=stateText(s);
+ let uploadStatus=document.getElementById('uploadStatus');
+ if(uploadStatus&&!uploadStatus.textContent.startsWith('Yükleme başarısız:')&&!uploadStatus.textContent.includes('doğrulanıyor'))uploadStatus.textContent=s.uploadedWorkbookReady?'Yüklenmiş Excel hazır; panel işlemlerinde bu dosya kullanılacak.':'Yüklenmiş Excel yok; ayarlardaki yol kullanılacak.';
  document.getElementById('state').textContent=s.runnerRunning?'● '+label:label;
  document.getElementById('stateSub').textContent=s.runnerRunning?'Otomasyon aktif.':(st==='ERROR'?'Güvenli noktada durdu. Ayrıntı aşağıda ve logda.':st==='WAITING_FOR_USER_APPROVAL'?'Çakışma bulundu. Devam için onay gerekiyor.':'Otomasyon şu anda çalışmıyor.');
  let b=document.getElementById('badge');b.textContent=s.runnerRunning?'ÇALIŞIYOR':'DURDU';b.className='badge '+(s.runnerRunning?'run':'stop');
@@ -146,11 +173,44 @@ class Handler(BaseHTTPRequestHandler):
         p=urlparse(self.path)
         if p.path=="/":
             b=HTML.encode("utf-8");self.send_response(200);self.send_header("Content-Type","text/html; charset=utf-8");self.send_header("Content-Length",str(len(b)));self.end_headers();self.wfile.write(b);return
+        if p.path=="/api/template":
+            b=create_template();self.send_response(200);self.send_header("Content-Type","application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");self.send_header("Content-Disposition",'attachment; filename="MYS-Yolluk-Sablon.xlsx"');self.send_header("Content-Length",str(len(b)));self.end_headers();self.wfile.write(b);return
         if p.path=="/api/status":self.sendj(status());return
         if p.path=="/api/log":self.sendj({"lines":logs()});return
         self.send_error(404)
     def do_POST(self):
         p=urlparse(self.path)
+        if p.path=="/api/upload":
+            # Yerel panel dışında başlayan sayfa isteklerinin dosya yüklemesini engelle.
+            origin=self.headers.get("Origin")
+            expected_origin="http://127.0.0.1:"+str(self.server.server_port)
+            if origin and origin.rstrip("/")!=expected_origin:
+                self.sendj({"ok":False,"message":"Dosya yükleme yalnızca yerel kontrol panelinden yapılabilir."},403);return
+            if PROC is not None and PROC.poll() is None:
+                self.sendj({"ok":False,"message":"Otomasyon çalışırken Excel değiştirilemez."},409);return
+            try:
+                content_length=int(self.headers.get("Content-Length","0"))
+                if content_length<=0 or content_length>MAX_WORKBOOK_BYTES:
+                    raise ValueError("Dosya boş veya 20 MB sınırını aşıyor.")
+                content_type=self.headers.get("Content-Type","")
+                if not content_type.lower().startswith("multipart/form-data;"):
+                    raise ValueError("Excel dosyası form üzerinden gönderilmelidir.")
+                envelope=(f"Content-Type: {content_type}\r\nMIME-Version: 1.0\r\n\r\n").encode("ascii")+self.rfile.read(content_length)
+                message=BytesParser(policy=policy.default).parsebytes(envelope)
+                part=next((item for item in message.iter_parts() if item.get_param("name",header="content-disposition")=="workbook"),None)
+                if part is None or not (part.get_filename() or "").lower().endswith(".xlsx"):
+                    raise ValueError("Yalnızca .xlsx Excel dosyaları kabul edilir.")
+                workbook_data=part.get_payload(decode=True)
+                if not workbook_data or len(workbook_data)>MAX_WORKBOOK_BYTES:
+                    raise ValueError("Dosya boş veya 20 MB sınırını aşıyor.")
+                validate_workbook(workbook_data)
+                UPLOADED_WORKBOOK.parent.mkdir(parents=True,exist_ok=True)
+                temporary=UPLOADED_WORKBOOK.with_suffix(".uploading")
+                temporary.write_bytes(workbook_data)
+                temporary.replace(UPLOADED_WORKBOOK)
+            except (ValueError,OSError) as exc:
+                self.sendj({"ok":False,"message":str(exc)},400);return
+            self.sendj({"ok":True,"message":"Excel doğrulandı ve yüklendi. Panelde başlatılan işlemler bu dosyayı kullanacak."});return
         if p.path in ("/api/start","/api/stop"):
             if p.path=="/api/stop":ok,msg=stop();self.sendj({"ok":ok,"message":msg},200 if ok else 409);return
             n=int(self.headers.get("Content-Length","0"));body=json.loads(self.rfile.read(n) or b"{}");ok,msg=start(body.get("args",[]));self.sendj({"ok":ok,"message":msg},200 if ok else 409);return

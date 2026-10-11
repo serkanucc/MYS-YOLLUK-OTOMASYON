@@ -72,7 +72,10 @@ if(!budgetSelected()){
  for(let i=0;i<20;i++){await sleep(100);if(budgetSelected())break;}
 }
 if(!budgetSelected())throw Error("Bütçe tertibi seçim doğrulaması başarısız");
-const ai=document.querySelector("[data-testid=birimAmiriTcknInput]");if(!ai)throw Error("Birim Amiri TCKN alanı bulunamadı");
+const ai=document.querySelector("[data-testid=birimAmiriTcknInput]");
+/* NEDEN: Birim Amiri alanı yalnızca geçerli personel Mernis'ten dolduğunda oluşur.
+   Alan yoksa personel gelmemiştir (geçersiz TCKN); bu bir hata değil DURUM -> motora bildir. */
+if(!ai)return {personelBulunamadi:true,tckn:amirTckn,submitDisabled:null};
 setInput(ai,amirTckn);await sleep(250);const aq=document.querySelector("[data-testid=birimAmiriAraButton]");if(!aq||aq.disabled)throw Error("Birim Amiri sorgu butonu aktif değil");aq.click();
 let amirName="",amirTitle="";
 for(let i=0;i<30;i++){await sleep(250);const al=document.querySelector('[title="Birim Amiri Ad Soyad"]');const au=document.querySelector('[title="Birim Amiri Unvan"]');const an=al?.parentElement?.querySelector("input");const av=au?.parentElement?.querySelector("input");amirName=an?.value?.trim()||"";amirTitle=av?.value?.trim()||"";if(amirName)break;}

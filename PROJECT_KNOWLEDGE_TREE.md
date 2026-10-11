@@ -2,7 +2,7 @@
 
 > BU DOSYA PROJENİN HAFIZASIDIR. Kod değiştirmeden önce MUTLAKA oku.
 > Kodlama kuralı, mimari, güvenlik ilkeleri ve tüm değişiklik günlüğü burada tutulur.
-> Son güncelleme: 2026-10-11
+> Son güncelleme: 2026-10-12
 
 ---
 
@@ -129,7 +129,37 @@ python scripts\stage1-live-run.py --stop-before-submit   # Güvenli dry-run (kay
 python tests\test-assignment.py           # ASSIGNMENT TESTS OK
 python tests\test-read-amir.py            # READ_AMIR_TCKN TESTS OK
 
+### 2026-10-11 (akşam) — Geçersiz TCKN'de "Mernis personel bulunamadı" durum tespiti
+Amaç: Gerçek-olmayan/geçersiz TCKN'de otomasyonun "Birim Amiri TCKN alanı bulunamadı"
+hatasıyla ÇÖKMESİNİ engelle. Kullanıcı bulgusu: Mernis sadece geçerli/gerçek TCKN'de
+personel döndürür; geçersizse Ad Soyad/IBAN/Birim Amiri alanları DOM'da hiç oluşmaz.
+
+| # | Dosya | Değişiklik | Neden / Etki |
+|---|---|---|---|
+| 7 | stage1-flow-pre.js | Mernis/Maaş sonrası Ad Soyad alanının dolup dolmadığını kontrol et; boşsa personelBulunamadi döndür. | MANTIK: geçersiz TCKN'de personel gelmez, IBAN alanı da olmaz. Artık çökmez, durumu bildirir. |
+| 8 | stage1-flow-post.js | birimAmiriTcknInput yoksa hata fırlatmak yerine personelBulunamadi döndür. | MANTIK: alan yokluğu geçersiz TCKN'nin işareti; hata değil durum. |
+| 9 | stage1-live-run.py | pre ve post sonuçlarında personelBulunamadi kontrolü; USER_INFORMATION_REQUIRED kaydet, submit'a geçmeden sonraki kişiye geç. | GÜVENLİ AKIŞ: tahmin yok, boş form doldurmaya çalışmaz, kullanıcıya net mesaj. |
+
+
 ## 8. DEĞİŞİKLİK GÜNLÜĞÜ (CHANGELOG) — en yenisi üstte
+
+### 2026-10-12 — Panelden Excel yükleme ve boş şablon
+Amaç: Dosya adı/konumu değişse de kullanıcıya panelden Excel seçip yükleme ve doğru kolonlu boş şablon indirme imkânı ver.
+
+| # | Dosya | Değişiklik | Neden / Etki |
+|---|---|---|---|
+| 1 | scripts/workbook_support.py | Motorun beklediği sütun/sayfa yapısını doğrulama ve boş Excel şablonu üretme işlevleri eklendi. | Yanlış veya okunamayan dosyanın seçilmesini önler; gerçek personel verisi içermeyen başlangıç şablonu sağlar. |
+| 2 | scripts/yolluk-controller.py | Yerel panele `.xlsx` yükleme endpoint'i ve şablon indirme endpoint'i eklendi; yüklenen çalışma kitabı başlatma sırasında motora aktarılır. | Excel yolu/adı değişikliklerinden bağımsız kullanım sağlar. Yükleme 20 MB ile sınırlı ve otomasyon çalışırken kilitlidir. |
+| 3 | tests/test-workbook-support.py | Boş şablonun yükleme doğrulamasından geçtiği ve hatalı başlıkların reddedildiği test edildi. | Şablon ve upload yapısının motorla uyumunu regresyona karşı korur. |
+| 4 | tests/test-workbook-panel.py | Yerel HTTP endpoint'lerinden şablon indirme/yükleme ve yabancı Origin reddi doğrulandı. | Panelin upload/download yollarını uçtan uca test eder. |
+| 5 | README.md | Panelde Excel yükleme ve şablon kullanımı belgelendi. | Kullanıcıya yeni özelliğin kullanım adımlarını açıklar. |
+
+### 2026-10-12 — Yerel runtime Excel ayarını kullanma
+Amaç: Ana motorun makineye özel Excel yolunu yok sayıp mevcut olmayan varsayılan dosyada hata vermesini düzelt.
+
+| # | Dosya | Değişiklik | Neden / Etki |
+|---|---|---|---|
+| 1 | stage1-live-run.py | `runner-settings.runtime.json` içindeki `sourceWorkbook` önce deneniyor; dosya yoksa ana config yoluna dönülüyor. Eksik dosya hatası artık kontrol edilen tüm yolları gösteriyor. | Runtime ayarında mevcut Excel dosyası tanımlı olmasına rağmen motor yalnızca taşınabilir varsayılan yolu kullanıyordu. Makineye özel yol uygulanır, varsayılan taşınabilirlik korunur. |
 
 ### 2026-10-11 — Kapsamlı hata avı + taşınabilirlik + bilgi ağacı
 Amaç: Projeyi uçtan uca incele, kod/mantık hatalarını bul ve düzelt, kalıcı hafız kur.
@@ -173,5 +203,3 @@ Amaç: Projeyi uçtan uca incele, kod/mantık hatalarını bul ve düzelt, kalı
 
 Bağımlılıklar: Python 3.12 + openpyxl, Node (playwright-cli). Oturum: chrome-main.
 Derleme kontrolü: python -m py_compile scripts\<dosya> ve node --check scripts\<dosya>.
-
-

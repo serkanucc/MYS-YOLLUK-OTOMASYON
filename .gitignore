@@ -5,6 +5,7 @@ data/excel-dry-output.json
 data/last-flow.js
 data/live-steps.json
 data/run-summary.json
+data/checkpoint.json
 
 # Sensitive personnel workbook (contains TCKN/IBAN) - NEVER commit
 *.xlsx
@@ -23,3 +24,7 @@ config/runner-settings.runtime.json
 __pycache__/
 *.py[cod]
 .vscode/
+
+# Playwright CLI transient artifacts
+.playwright-cli/
+

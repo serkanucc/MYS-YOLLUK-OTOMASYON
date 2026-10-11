@@ -20,5 +20,12 @@ Ek kaynaklar:
 python scripts\yolluk-controller.py     # Panel -> http://127.0.0.1:8765
 python scripts\stage1-live-run.py --stop-before-submit   # Güvenli dry-run
 python tests\test-assignment.py         # Birim testler
+python tests\test-workbook-support.py   # Excel şablonu/yükleme doğrulama testi
+python tests\test-workbook-panel.py     # Panelin yerel yükleme/şablon uçları
 ```
 
+Kontrol panelindeki **Excel dosyası** bölümünden `.xlsx` dosyası yükleyebilir veya
+boş şablonu indirebilirsiniz. Şablonun ilk sayfasına personel satırlarını, ikinci
+sayfasında `TC/TCKN` etiketinin hemen sağına Birim Amiri TCKN'sini girin. Yüklenen
+dosya paneldeki sonraki işlemlerde seçilen dosya yolu/ismi değişse bile kullanılır;
+Excel dosyaları yerel tutulur ve Git'e eklenmez.

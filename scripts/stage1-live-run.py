@@ -9,8 +9,21 @@ FIXED=json.loads((ROOT/"config/fixed-values.json").read_text(encoding="utf-8-sig
 FLOW_PRE=(ROOT/"scripts/stage1-flow-pre.js").read_text(encoding="utf-8")
 FLOW_POST=(ROOT/"scripts/stage1-flow-post.js").read_text(encoding="utf-8")
 DUP=(ROOT/"scripts/duplicate-check.js").read_text(encoding="utf-8")
-EXCEL_CFG=CFG["sourceWorkbook"]
-EXCEL=(ROOT/EXCEL_CFG) if not Path(EXCEL_CFG).is_absolute() else Path(EXCEL_CFG)
+# Makineye özel runtime ayarı varsa önce onun Excel yolunu dene; taşınabilir varsayılanı koru.
+RUNTIME_CFG=ROOT/"config/runner-settings.runtime.json"
+EXCEL_CANDIDATES=[]
+if RUNTIME_CFG.exists():
+    runtime_settings=json.loads(RUNTIME_CFG.read_text(encoding="utf-8-sig"))
+    if runtime_settings.get("sourceWorkbook"):
+        EXCEL_CANDIDATES.append(runtime_settings["sourceWorkbook"])
+EXCEL_CANDIDATES.append(CFG["sourceWorkbook"])
+EXCEL_PATHS=[]
+for workbook in EXCEL_CANDIDATES:
+    path=Path(workbook)
+    path=path if path.is_absolute() else ROOT/path
+    if path not in EXCEL_PATHS:
+        EXCEL_PATHS.append(path)
+EXCEL=next((path for path in EXCEL_PATHS if path.exists()),EXCEL_PATHS[0])
 CHECK=ROOT/"data/checkpoint.json"; LOG=ROOT/"logs/stage1.log"; STEPS=ROOT/"data/live-steps.json"
 def resolve_cli():
     """playwright-cli.cmd yolunu çalışma anında çözer.
@@ -181,10 +194,11 @@ def read_amir_tckn(wb):
 def people():
     if not EXCEL.exists():
         raise RuntimeError(
-            "Excel dosyası bulunamadı: "+str(EXCEL)+"\n"
-            "Güncel 'Yolluk Liste' dosyasını bu yola koyun veya config/runner-settings.json "
-            "içindeki 'sourceWorkbook' değerini güncelleyin (panelden çalıştırırken de "
-            "--excel <dosya> ile geçici yol verebilirsiniz).")
+            "Excel dosyası bulunamadı. Kontrol edilen yollar: "
+            +"; ".join(str(path) for path in EXCEL_PATHS)+"\n"
+            "Güncel 'Yolluk Liste' dosyasını bu yollardan birine koyun veya "
+            "config/runner-settings.json içindeki 'sourceWorkbook' değerini güncelleyin "
+            "(--excel <dosya> ile farklı bir dosya verebilirsiniz).")
     wb=openpyxl.load_workbook(EXCEL,data_only=True,read_only=True);ws=wb[wb.sheetnames[0]]
     amir_tckn=read_amir_tckn(wb)
     rows=list(ws.iter_rows(values_only=True));h=[str(x).strip() if x is not None else "" for x in rows[0]]
@@ -255,8 +269,10 @@ def main():
     ap.add_argument("--force-iban-reset",action="store_true")
     ap.add_argument("--excel")
     a=ap.parse_args()
-    global EXCEL
-    if a.excel: EXCEL=(ROOT/a.excel) if not Path(a.excel).is_absolute() else Path(a.excel)
+    global EXCEL,EXCEL_PATHS
+    if a.excel:
+        EXCEL=(ROOT/a.excel) if not Path(a.excel).is_absolute() else Path(a.excel)
+        EXCEL_PATHS=[EXCEL]
     approvals=set(a.approve)|approved_ids(a)
     # BAŞLANGIÇ KONTROLÜ: Excel/form işlemine geçmeden önce bağlantı kesinlikle hazır olmalı.
     wait_for_playwright("MYS otomasyonu başlangıç kontrolü")
@@ -294,15 +310,32 @@ def main():
         js_pre=FLOW_PRE.replace("{{FORCE_IBAN}}","true" if a.force_iban_reset else "false").replace("{{TCKN}}",str(x["tckn"])).replace("{{IBAN}}",str(x["iban"])).replace("{{DAILY}}",str(x["daily"])).replace("{{START}}",x["start"]).replace("{{END}}",x["end"]).replace("{{AMIR_TCKN}}",str(x["amirTckn"])).replace("{{BUDGET}}",FIXED["budgetItem"])
         js_post=FLOW_POST.replace("{{TCKN}}",str(x["tckn"])).replace("{{IBAN}}",str(x["iban"])).replace("{{DAILY}}",str(x["daily"])).replace("{{START}}",x["start"]).replace("{{END}}",x["end"]).replace("{{AMIR_TCKN}}",str(x["amirTckn"])).replace("{{BUDGET}}",FIXED["budgetItem"])
         result=None
+        personel_yok=False  # NEDEN: geçersiz TCKN'de Mernis personel döndürmez; bu durumda submit'a geçilmeyecek.
         for form_attempt in range(1,3):
             pw("goto",CFG["formUrl"]);time.sleep(1.2)
             try:
                 step("Form dolduruluyor", "TCKN, Mernis, maaş, IBAN ve sabit alanlar");result=ev(re.sub(r"\s+"," ",js_pre))
+                # NEDEN: Mernis geçersiz/gerçek-olmayan TCKN'de personel döndürmez; Ad Soyad/IBAN/
+                # Birim Amiri alanları hiç oluşmaz. Bu bir hata değil DURUM: tahmin yapma, güvenle
+                # kullanıcıya bildir ve bir sonraki kişiye geç (formu boşuna doldurmaya çalışma).
+                if result.get("personelBulunamadi"):
+                    step("Mernis personel bulunamadı", f"TCKN {x['tckn']} için MYS/Mernis personel döndürmedi (geçersiz/gerçek-olmayan TCKN olabilir).")
+                    log(f"PERSONEL_NOT_FOUND assignment={x['assignmentId']} tckn={x['tckn']} -> atlaniyor")
+                    save(x,"USER_INFORMATION_REQUIRED",message="MYS/Mernis bu TCKN için personel döndürmedi; Excel TCKN'sini kontrol edin.",personelBulunamadi=True)
+                    personel_yok=True
+                    break
                 if result.get("needsIbanCommit"):
                     pw("press","Enter");time.sleep(.7)
                     iban_check=ev("(()=>{const l=[...document.querySelectorAll('label.yte-form-label')].find(x=>x.title==='IBAN');const e=document.getElementById(l.htmlFor);return [...e.querySelectorAll('.yte-power-select-multiple-selected-option-label')].map(x=>x.innerText.trim())})()")
                     if str(x["iban"]).strip().upper() not in [str(v).strip().upper() for v in iban_check]: raise RuntimeError("Excel IBAN Enter sonrası MYS formunda seçilemedi")
                 step("Form tamamlanıyor", "Tarih, gündelik, bütçe ve Birim Amiri kontrolleri");result=ev(re.sub(r"\s+"," ",js_post))
+                # js_post da personel gelmediyse (geçersiz TCKN) aynı durumu döndürür.
+                if result.get("personelBulunamadi"):
+                    step("Mernis personel bulunamadı", f"TCKN {x['tckn']} için personel alanları oluşmadı (Birim Amiri alanı yok).")
+                    log(f"PERSONEL_NOT_FOUND assignment={x['assignmentId']} tckn={x['tckn']} (post) -> atlaniyor")
+                    save(x,"USER_INFORMATION_REQUIRED",message="MYS/Mernis bu TCKN için personel döndürmedi; Excel TCKN'sini kontrol edin.",personelBulunamadi=True)
+                    personel_yok=True
+                    break
                 if result.get("submitDisabled") is not False: raise RuntimeError("Form tamamlanmadı: Yolluk Süreç Hazırlama aktif değil")
                 break
             except Exception as e:
@@ -311,6 +344,9 @@ def main():
                     save(x,"ERROR",message=str(e),formAttempts=form_attempt)
                     raise
                 time.sleep(1.5)
+        # NEDEN: Mernis bu TCKN için personel döndürmediyse (geçersiz/gerçek-olmayan TCKN) form
+        # dolmadı; submit'a geçme, bir sonraki kişiye geç. Tahmin yok, güvenli atlama.
+        if personel_yok: continue
         step("Form hazır", "Yolluk Süreç Hazırlama gönderimine hazır.");save(x,"READY_TO_SUBMIT",approvalGranted=(x["assignmentId"] in approvals))
         if not a.live: print(json.dumps({"status":"READY_TO_SUBMIT","assignmentId":x["assignmentId"]},ensure_ascii=False)); return
         if not CFG.get("liveSubmissionEnabled") and not a.stop_before_submit: raise RuntimeError("Canlı gönderim kilidi kapalı.")
@@ -351,5 +387,4 @@ def main():
     print(json.dumps({"status":"RUN_COMPLETE"},ensure_ascii=False))
 
 if __name__=="__main__": main()
-
 
