@@ -1,7 +1,7 @@
 {
   "version": 2,
   "stage": "STAGE1",
-  "source": "C:\\Users\\serkan.suc\\Desktop\\YOLLUKLAR\\2026\\LİSTE 7\\Yolluk Liste 7.xlsx",
+  "source": "D:\\MYS-YOLLUK-OTOMASYON\\data\\Yolluk Liste 7.xlsx",
   "records": {
     "1a1631142c71d6cee0ee": {
       "row": 1,
@@ -16,7 +16,21 @@
       "mysStart": "03/08/2026",
       "mysEnd": "13/08/2026",
       "approvalGranted": false
+    },
+    "4446ff9028de18585911": {
+      "row": 1,
+      "status": "PROCESSING",
+      "dutyDates": "03,10,12/08/2026",
+      "actualDutyDates": [
+        "03/08/2026",
+        "10/08/2026",
+        "12/08/2026"
+      ],
+      "dayCount": 3,
+      "mysStart": "03/08/2026",
+      "mysEnd": "13/08/2026",
+      "approvalGranted": false
     }
   },
-  "lastAssignment": "1a1631142c71d6cee0ee"
+  "lastAssignment": "4446ff9028de18585911"
 }

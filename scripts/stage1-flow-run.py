@@ -1,10 +1,28 @@
-import json,re,subprocess,time,datetime
+import json,os,re,shutil,subprocess,time,datetime
 from pathlib import Path
 import openpyxl
 
 ROOT=Path(__file__).resolve().parents[1]
 CFG=json.loads((ROOT/"config/runner-settings.json").read_text(encoding="utf-8"))
-PW_HEALTH=ROOT.parent/"PLAYWRIGHT-CHROME-BAGLANTI"/"PW-GREEN-CHECK.ps1"
+PW_HEALTH=Path(os.environ.get("APPDATA",""))/"Desktop"/"PLAYWRIGHT-CHROME-BAGLANTI"/"PW-GREEN-CHECK.ps1"
+
+
+def resolve_cli():
+    cfg=CFG.get("cliPath") if isinstance(CFG,dict) else None
+    if cfg and Path(cfg).exists():
+        return str(cfg)
+    which=shutil.which("playwright-cli.cmd") or shutil.which("playwright-cli")
+    if which:
+        return which
+    appdata=os.environ.get("APPDATA")
+    if appdata:
+        cand=Path(appdata)/"npm"/"playwright-cli.cmd"
+        if cand.exists():
+            return str(cand)
+    return None
+
+
+CLI=resolve_cli()
 
 
 def playwright_health():
@@ -26,11 +44,12 @@ def wait_for_playwright():
 
 FIXED=json.loads((ROOT/"config/fixed-values.json").read_text(encoding="utf-8"))
 TEMPLATE=(ROOT/"scripts/stage1-flow.js").read_text(encoding="utf-8")
-EXCEL=Path(CFG["sourceWorkbook"])
+EXCEL_CFG=CFG["sourceWorkbook"]
+EXCEL=(ROOT/EXCEL_CFG) if not Path(EXCEL_CFG).is_absolute() else Path(EXCEL_CFG)
 
 def pw(*args):
     wait_for_playwright()
-    p=subprocess.run([r"C:\Users\serkan.suc\AppData\Roaming\npm\playwright-cli.cmd","-s="+str(CFG.get("browserSession","chrome-main")),*args],capture_output=True,text=True,encoding="utf-8",errors="replace")
+    p=subprocess.run([CLI,"-s="+str(CFG.get("browserSession","chrome-main")),*args],capture_output=True,text=True,encoding="utf-8",errors="replace")
     if p.returncode: raise RuntimeError(p.stderr or p.stdout)
     return p.stdout
 

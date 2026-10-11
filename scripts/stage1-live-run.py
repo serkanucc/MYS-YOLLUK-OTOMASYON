@@ -1,4 +1,4 @@
-import json,re,subprocess,time,argparse,datetime
+import json,os,re,shutil,subprocess,time,argparse
 from pathlib import Path
 import openpyxl
 from assignment import assignment_id,classify_candidates,TRAVEL_TYPE,duty_period
@@ -9,51 +9,102 @@ FIXED=json.loads((ROOT/"config/fixed-values.json").read_text(encoding="utf-8-sig
 FLOW_PRE=(ROOT/"scripts/stage1-flow-pre.js").read_text(encoding="utf-8")
 FLOW_POST=(ROOT/"scripts/stage1-flow-post.js").read_text(encoding="utf-8")
 DUP=(ROOT/"scripts/duplicate-check.js").read_text(encoding="utf-8")
-EXCEL=Path(CFG["sourceWorkbook"]); CHECK=ROOT/"data/checkpoint.json"; LOG=ROOT/"logs/stage1.log"; STEPS=ROOT/"data/live-steps.json"
-CLI=r"C:\Users\serkan.suc\AppData\Roaming\npm\playwright-cli.cmd"
+EXCEL_CFG=CFG["sourceWorkbook"]
+EXCEL=(ROOT/EXCEL_CFG) if not Path(EXCEL_CFG).is_absolute() else Path(EXCEL_CFG)
+CHECK=ROOT/"data/checkpoint.json"; LOG=ROOT/"logs/stage1.log"; STEPS=ROOT/"data/live-steps.json"
+def resolve_cli():
+    """playwright-cli.cmd yolunu çalışma anında çözer.
+    Öncelik: config > PATH(shutil.which) > %APPDATA%\\npm.
+    Proje farklı kullanıcı/makineye taşındığında bağlantı kopmasın diye
+    kullanıcı adı koda gömmüyoruz. Bulunamazsa None döner."""
+    cfg=CFG.get("cliPath") if isinstance(CFG,dict) else None
+    if cfg and Path(cfg).exists():
+        return str(cfg)
+    which=shutil.which("playwright-cli.cmd") or shutil.which("playwright-cli")
+    if which:
+        return which
+    appdata=os.environ.get("APPDATA")
+    if appdata:
+        cand=Path(appdata)/"npm"/"playwright-cli.cmd"
+        if cand.exists():
+            return str(cand)
+    return None
+
+
+CLI=resolve_cli()
 
 
 def playwright_health():
-    """MYS kendi bağlantısını yalnızca Playwright CLI oturum durumundan doğrular.
+    """Bağlantı durumunu Playwright CLI oturum listesinden okur.
     Bu proje hiçbir şekilde attach başlatmaz; bağlantı kullanıcı tarafından başlatılır.
+
+    Dönen değerler:
+      OK              : hedef session açık ve attach
+      NO_CONNECTION   : CLI çalışıyor ama hedef session yok / attach değil
+      SESSION_CONFLICT: birden fazla aynı adlı session (uyumsuz durum)
+      CLI_MISSING     : playwright-cli.cmd hiç bulunamadı (kurulum/yol sorunu)
+      CLI_ERROR       : CLI çalıştırılamadı veya çıktısı okunamadı
     """
+    if not CLI or not Path(CLI).exists():
+        return "CLI_MISSING"
     try:
         raw=subprocess.run([CLI,"list","--all","--json"],capture_output=True,text=True,encoding="utf-8",errors="replace",timeout=10)
-        if raw.returncode != 0 or not raw.stdout.strip():
-            return "NO_CONNECTION"
-        state=json.loads(raw.stdout)
-        browsers=state.get("browsers",[])
-        session=CFG.get("browserSession","chrome-main")
-        cm=[b for b in browsers if b.get("name")==session]
-        if len(cm)==1 and cm[0].get("status")=="open" and cm[0].get("attached") is True:
-            return "OK"
-        return "NO_CONNECTION"
     except Exception:
-        return "NO_CONNECTION"
+        return "CLI_ERROR"
+    if raw.returncode != 0 or not raw.stdout.strip():
+        return "CLI_ERROR"
+    try:
+        state=json.loads(raw.stdout)
+    except Exception:
+        return "CLI_ERROR"
+    browsers=state.get("browsers",[])
+    session=CFG.get("browserSession","chrome-main")
+    cm=[b for b in browsers if b.get("name")==session]
+    if len(cm)>1:
+        return "SESSION_CONFLICT"
+    if len(cm)==1 and cm[0].get("status")=="open" and cm[0].get("attached") is True:
+        return "OK"
+    return "NO_CONNECTION"
 
 
-def wait_for_playwright(context=""):
-    """Bağlantı yoksa işlemi güvenli noktada bekletir; otomatik ikinci attach yapmaz."""
-    last=None
+def wait_for_playwright(context="",max_wait=None):
+    """Bağlantı yoksa işlemi güvenli noktada bekletir; otomatik ikinci attach yapmaz.
+    CLI kurulu değilse (CLI_MISSING) beklemek anlamsızdır; hemen hata verir.
+    max_wait: saniye; verilirse bu süre içinde bağlantı kurulmazsa sessizce döner."""
+    start=time.time();last=None
     while True:
         state=playwright_health()
         if state=="OK":
             if last is not None:
-                log("PLAYWRIGHT_RECONNECTED | chrome-main + yesil grup dogrulandi")
-                step("Playwright bağlantısı yeniden kuruldu", "chrome-main ve yeşil grup doğrulandı")
+                log("PLAYWRIGHT_RECONNECTED | chrome-main oturumu dogrulandi")
+                step("Playwright bağlantısı yeniden kuruldu", "chrome-main oturumu doğrulandı")
             return
-        msg=("Playwright bağlantısı bekleniyor" if state=="NO_CONNECTION" else "Playwright bağlantı durumu tutarsız: birden fazla/uyumsuz session")
+        if state=="CLI_MISSING":
+            raise RuntimeError("playwright-cli.cmd bulunamadı. Playwright CLI kurulumunu veya cliPath ayarını kontrol edin.")
+        msg={
+            "NO_CONNECTION":"Playwright bağlantısı bekleniyor",
+            "SESSION_CONFLICT":"Playwright bağlantı durumu tutarsız: birden fazla/uyumsuz chrome-main oturumu",
+            "CLI_ERROR":"Playwright CLI çalıştırılamadı veya çıktısı okunamadı"
+        }.get(state,"Playwright bağlantısı bekleniyor")
         if msg!=last:
             log("PLAYWRIGHT_WAIT | "+msg+((" | "+context) if context else ""))
             step("Playwright bağlantısı bekleniyor", msg+((" | "+context) if context else ""))
             last=msg
+        if max_wait is not None and time.time()-start>max_wait:
+            return
         time.sleep(2)
 
+
+def is_login_page(url):
+    s=str(url).lower()
+    return any(k in s for k in ("giris.hmb.gov.tr","/login","callbackauthorize","oauth2.0","cas/login"))
 
 def pw(*args):
     wait_for_playwright("Playwright işlemi öncesi kontrol")
     p=subprocess.run([CLI,"-s="+str(CFG.get("browserSession","chrome-main")),*args],capture_output=True,text=True,encoding="utf-8",errors="replace")
     if p.returncode: raise RuntimeError(p.stderr or p.stdout)
+    if args and args[0]=="goto" and len(args)>1:
+        ensure_mys_session("goto "+str(args[1]))
     return p.stdout
 
 def ev(expr):
@@ -61,6 +112,28 @@ def ev(expr):
     if not m: raise RuntimeError(out)
     try:return json.loads(m.group(1).strip())
     except:return m.group(1).strip()
+
+def ensure_mys_session(context=""):
+    """Sayfa CAS giriş ekranına düşmüşse oturum düşmüştür.
+    Otomasyon giriş yapmaz; kullanıcıyı net bilgilendirir ve tarayıcıda
+    giriş yapılmasını bekler. Giriş tamamlanıp MYS sayfasına dönülünce devam eder."""
+    announced=None
+    while True:
+        try:
+            url=str(ev("location.href"))
+        except Exception:
+            return
+        if not is_login_page(url):
+            if announced:
+                log("MYS_SESSION_RESTORED | giris tamamlandi, devam ediliyor")
+                step("MYS oturumu geri geldi","Giriş tamamlandı; işleme devam ediliyor.")
+            return
+        msg="MYS oturumu düşmüş: tarayıcı CAS giriş ekranında. Lütfen açık Chrome penceresinde MYS'e giriş yapın; giriş yapılınca otomasyon otomatik devam eder."
+        if msg!=announced:
+            log("MYS_SESSION_EXPIRED | "+msg+((" | "+context) if context else ""))
+            step("MYS girişi bekleniyor", msg+((" | "+context) if context else ""))
+            announced=msg
+        time.sleep(3)
 
 def save(x,status,**extra):
     d=json.loads(CHECK.read_text(encoding="utf-8-sig")) if CHECK.exists() else {"version":2,"stage":"STAGE1","records":{}}
@@ -106,6 +179,12 @@ def read_amir_tckn(wb):
     raise RuntimeError("Excel 2. sayfada Birim Amiri TC/TCKN bulunamadı. Güncel amir TCKN'sini 2. sayfaya girin.")
 
 def people():
+    if not EXCEL.exists():
+        raise RuntimeError(
+            "Excel dosyası bulunamadı: "+str(EXCEL)+"\n"
+            "Güncel 'Yolluk Liste' dosyasını bu yola koyun veya config/runner-settings.json "
+            "içindeki 'sourceWorkbook' değerini güncelleyin (panelden çalıştırırken de "
+            "--excel <dosya> ile geçici yol verebilirsiniz).")
     wb=openpyxl.load_workbook(EXCEL,data_only=True,read_only=True);ws=wb[wb.sheetnames[0]]
     amir_tckn=read_amir_tckn(wb)
     rows=list(ws.iter_rows(values_only=True));h=[str(x).strip() if x is not None else "" for x in rows[0]]
@@ -114,19 +193,30 @@ def people():
             if n in h:return h.index(n)
         raise RuntimeError("Excel sütunu eksik: "+names[0])
     ti,di,ii,ai,ri=ci("TC NO","TCKN"),ci("GEÇ. GÖREV TARİHİ","GEÇ GÖREV TARİHİ"),ci("IBAN"),ci("GÜNDELİĞİ","GUNDELIGI"),ci("SIRANO","SIRA NO")
-    out=[]
+    # GÜN SAYISI indeksini bir kez hesapla (önceden her satırda yeniden aranıyordu -> verimsiz).
+    gsi=ci("GÜN SAYISI","GUN SAYISI") if ("GÜN SAYISI" in h or "GUN SAYISI" in h) else None
+    out=[];skipped=[]
     for r in rows[1:]:
         if not any(x is not None and str(x).strip() for x in r):continue
-        dates,start,end=duty_period(r[di])
-        day_count=r[ci("GÜN SAYISI","GUN SAYISI")] if "GÜN SAYISI" in h or "GUN SAYISI" in h else None
-        iban_value = str(r[ii] or "").strip()
-        if not valid_tr_iban(iban_value):
-            raise RuntimeError(f"Excel IBAN biçimi/checksum geçersiz; satır {r[ri]}. MYS formuna gönderilmedi.")
-        x={"row":r[ri],"tckn":r[ti],"iban":iban_value,"daily":r[ai],"dayCount":day_count,
-           "dutyDates":str(r[di]).strip(),"actualDutyDates":[d.strftime("%d/%m/%Y") for d in dates],
-           "start":start,"end":end,"travelType":TRAVEL_TYPE,"amirTckn":amir_tckn}
-        x["assignmentId"]=assignment_id(x);out.append(x)
+        try:
+            # Bir satır bozuk/format-dışıysa TÜM listeyi çökertme; o satırı atla ve logla.
+            dates,start,end=duty_period(r[di])
+            iban_value=str(r[ii] or "").strip()
+            if not valid_tr_iban(iban_value):
+                raise RuntimeError(f"IBAN biçimi/checksum geçersiz: {iban_value!r}")
+            x={"row":r[ri],"tckn":r[ti],"iban":iban_value,"daily":r[ai],
+               "dayCount":(r[gsi] if gsi is not None else None),
+               "dutyDates":str(r[di]).strip(),"actualDutyDates":[d.strftime("%d/%m/%Y") for d in dates],
+               "start":start,"end":end,"travelType":TRAVEL_TYPE,"amirTckn":amir_tckn}
+            x["assignmentId"]=assignment_id(x);out.append(x)
+        except Exception as e:
+            # Hatalı satırı atla; kullanıcı panel logundan görebilir. Sağlıklı satırlar işlenmeye devam eder.
+            skipped.append({"row":(r[ri] if ri<len(r) else None),"tckn":(r[ti] if ti<len(r) else None),"error":str(e)})
+            log(f"EXCEL_ROW_SKIPPED satir={r[ri] if ri<len(r) else '?'} hata={e}")
+    if skipped:
+        log(f"EXCEL_SKIP_SUMMARY atlanan_satir={len(skipped)} islenen={len(out)}")
     return out
+
 
 def query_yolluk_list(tckn):
     """Yolluk Süreç ana sayfasındaki listeyi sadece taze Sorgula sonrası okur."""
@@ -146,7 +236,7 @@ def duplicate(x):
             fetch_js = f"""(async()=>{{const r=await fetch({json.dumps(href)},{{credentials:'include'}});return await r.text()}})()"""
             html=str(ev(fetch_js))
             m=re.search(r"Başlangıç Tarihi\s*[^0-9]*(\d{2}/\d{2}/\d{4})[\s\S]{0,500}?Bitiş Tarihi\s*[^0-9]*(\d{2}/\d{2}/\d{4})",html,re.I)
-            if m: c["text"]+="\\nDATES:"+m.group(1)+" "+m.group(2)
+            if m: c["text"]+="\nDATES:"+m.group(1)+" "+m.group(2)
         except Exception as e:
             log(f"DUPLICATE_DETAIL_READ_FAILED assignment={x['assignmentId']} error={e}")
     return q
@@ -166,7 +256,7 @@ def main():
     ap.add_argument("--excel")
     a=ap.parse_args()
     global EXCEL
-    if a.excel: EXCEL=Path(a.excel)
+    if a.excel: EXCEL=(ROOT/a.excel) if not Path(a.excel).is_absolute() else Path(a.excel)
     approvals=set(a.approve)|approved_ids(a)
     # BAŞLANGIÇ KONTROLÜ: Excel/form işlemine geçmeden önce bağlantı kesinlikle hazır olmalı.
     wait_for_playwright("MYS otomasyonu başlangıç kontrolü")

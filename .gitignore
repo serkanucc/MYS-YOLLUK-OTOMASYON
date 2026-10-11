@@ -6,6 +6,11 @@ data/last-flow.js
 data/live-steps.json
 data/run-summary.json
 
+# Sensitive personnel workbook (contains TCKN/IBAN) - NEVER commit
+*.xlsx
+~$*.xlsx
+data/*.xlsx
+
 # Sensitive local material and historical copies
 BACKUP/
 *.zip
