@@ -80,6 +80,7 @@ Excel → stage1-live-run.py (motor) → playwright-cli -s=chrome-main → Chrom
 |---|---|
 | `test-assignment.py` | `assignment_id` + `classify_candidates` (EXACT/OVERLAP). |
 | `test-read-amir.py` | `read_amir_tckn` (2. sayfa, TCKN temizliği). |
+| `test-stage1-runner-policy.py` | Gerçek tamamlanan kaydı atlama ve simülasyonun tekrar çalışabilmesi. |
 
 ---
 
@@ -150,6 +151,16 @@ personel döndürür; geçersizse Ad Soyad/IBAN/Birim Amiri alanları DOM'da hi�
 
 
 ## 8. DEĞİŞİKLİK GÜNLÜĞÜ (CHANGELOG) — en yenisi üstte
+
+### 2026-10-12 — Önceki simülasyonun yeni testi atlamasını önleme
+Amaç: Kuru test ve form doldurma düğmeleri önceki SIMULATED_COMPLETED checkpoint'inde
+işlemi atlayıp yalnız RUN_COMPLETE yazmasın; simülasyon gerçek MYS kaydı oluşturmaz.
+
+| # | Dosya | Değişiklik | Neden / Etki |
+|---|---|---|---|
+| 1 | scripts/stage1-live-run.py | Atlanan işler politikası yalnız gerçek STAGE1_COMPLETED kayıtlarını varsayılan olarak atlar. | Önceki sahte sonuç yeni kuru test/form doldurmayı engellemez. |
+| 2 | tests/test-stage1-runner-policy.py | Gerçek tamamlanmış işin atlanması ve simülasyonun tekrar denenmesi doğrulanır. | Checkpoint tekrar çalıştırma davranışı regresyona karşı korunur. |
+| 3 | README.md, PROJECT_KNOWLEDGE_TREE.md | Simülasyon tekrar çalıştırılabilir olarak belgelenir. | Kullanıcı eski simülasyonun yeni testi engellemediğini bilir. |
 
 ### 2026-10-12 — Eski sonuç Excel'ini yeniden sunmayı engelleme
 Amaç: Panel yeniden açıldığında veya başka bir Excel yüklendiğinde önceki çalıştırmanın

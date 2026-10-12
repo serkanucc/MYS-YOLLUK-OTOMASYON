@@ -43,7 +43,9 @@ gerçek "Yolluk Süreç Hazırlama" butonuna basmaz. Son aşama yerel olarak sim
 sütununa yazılır. Tamamlandığında **Sonuç Excel'ini indir** bağlantısı görünür.
 Boş şablonda bu sütun son sütun olarak bulunur; eski Excel'lerde sonuç kopyasına
 otomatik eklenir. `Formu Doldur — Son Adımda Dur` seçeneği ise numara üretmeden
-mevcut güvenli davranışı korur.
+mevcut güvenli davranışı korur. Önceki `SIMULATED_COMPLETED` checkpoint'i gerçek
+MYS kaydı olmadığından Kuru Test ve simülasyon düğmelerine yeniden basıldığında
+form akışının tekrar çalışmasını engellemez.
 Sonuç dosyası yalnız mevcut panel oturumunda başarıyla tamamlanan simülasyondan sonra
 indirilebilir; panel yeniden başlatıldığında veya yeni Excel yüklendiğinde önceki
 sonuç geçersiz kılınır.

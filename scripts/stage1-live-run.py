@@ -281,6 +281,10 @@ def approved_ids(a):
     d=json.loads(CHECK.read_text(encoding="utf-8-sig")) if CHECK.exists() else {}
     return {k for k,v in d.get("records",{}).items() if v.get("status")=="DUPLICATE_APPROVED" or v.get("approvalGranted") is True}
 
+def should_skip_assignment(old,force_form_test=False):
+    # Simülasyon MYS'de kayıt oluşturmadığından tekrar test edilmesini checkpoint engellememeli.
+    return old.get("status")=="STAGE1_COMPLETED" and not force_form_test
+
 def main():
     ap=argparse.ArgumentParser()
     ap.add_argument("--live",action="store_true")
@@ -316,11 +320,7 @@ def main():
     for x in assignments:
         d=json.loads(CHECK.read_text(encoding="utf-8-sig")) if CHECK.exists() else {}
         old=d.get("records",{}).get(x["assignmentId"],{})
-        if old.get("status")=="STAGE1_COMPLETED" and not a.force_form_test: continue
-        if old.get("status")=="SIMULATED_COMPLETED" and not a.force_form_test:
-            if a.simulate_submit and old.get("yollukId"):
-                write_yolluk_number(result_excel,x["excelRow"],old["yollukId"])
-            continue
+        if should_skip_assignment(old,a.force_form_test): continue
         approval_granted=(x["assignmentId"] in approvals) or (old.get("approvalGranted") is True)
         if approval_granted: approvals.add(x["assignmentId"])
         save(x,"PROCESSING",approvalGranted=approval_granted)
