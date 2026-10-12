@@ -30,10 +30,20 @@ aitse ve otomasyon çalışmıyorsa onu güvenle kapatıp güncel paneli yeniden
 işlem sürerken veya portu başka bir uygulama kullanırken kapatma yapmaz.
 
 Kontrol panelindeki **Excel dosyası** bölümünden `.xlsx` dosyası yükleyebilir veya
-boş şablonu indirebilirsiniz. Şablonun ilk sayfasına personel satırlarını, ikinci
+`Yolluk Liste 7` başlıklarını (geldiği kurum ve geçici görev yaptığı kurum dahil)
+koruyan boş şablonu indirebilirsiniz. Şablon gerçek personel/kurum verisi içermez.
+İlk sayfaya personel satırlarını, ikinci
 sayfasında `TC/TCKN` etiketinin hemen sağına Birim Amiri TCKN'sini girin. Yüklenen
 dosya paneldeki sonraki işlemlerde seçilen dosya yolu/ismi değişse bile kullanılır;
 Excel dosyaları yerel tutulur ve Git'e eklenmez.
+
+Paneldeki **Formu Doldur — Sahte No Üret** seçeneği formu MYS ekranında doldurur ancak
+gerçek "Yolluk Süreç Hazırlama" butonuna basmaz. Son aşama yerel olarak simüle edilir;
+`TEST-...` önekli sahte yolluk numarası kaynak Excel'in kopyasında `YOLLUK NO`
+sütununa yazılır. Tamamlandığında **Sonuç Excel'ini indir** bağlantısı görünür.
+Boş şablonda bu sütun son sütun olarak bulunur; eski Excel'lerde sonuç kopyasına
+otomatik eklenir. `Formu Doldur — Son Adımda Dur` seçeneği ise numara üretmeden
+mevcut güvenli davranışı korur.
 
 Otomasyon başlangıcında `chrome-main` ve Chrome'daki yeşil Playwright grubu kontrol
 edilir. `autoStartPlaywrightConnection` açıkken bağlantı hazır değilse proje içindeki

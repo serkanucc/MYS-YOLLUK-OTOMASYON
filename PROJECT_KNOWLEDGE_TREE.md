@@ -39,7 +39,7 @@ Excel → stage1-live-run.py (motor) → playwright-cli -s=chrome-main → Chrom
 ### scripts/
 | Dosya | Rol | Durum |
 |---|---|---|
-| `stage1-live-run.py` | **Ana motor.** Excel okur, IBAN/tarih doğrular, mükerrer kontrol, formu doldurur, güvenli submit. | ✅ Aktif |
+| `stage1-live-run.py` | **Ana motor.** Excel okur, IBAN/tarih doğrular, mükerrer kontrol, formu doldurur, güvenli submit veya submit butonuna basmayan test simülasyonu. | ✅ Aktif |
 | `assignment.py` | **Saf mantık.** Tarih çözümleme (`duty_period`), görev kimliği (`assignment_id`), çakışma sınıflandırma (`classify_candidates`). Testli. | ✅ Aktif |
 | `yolluk-controller.py` | **Kontrol paneli** (http://127.0.0.1:8765). Durum, canlı adımlar, log, başlat/durdur. | ✅ Aktif |
 | `yolluk-panel.bat` | Paneli başlatır (port açıksa sadece tarayıcı açar). | ✅ Aktif |
@@ -93,7 +93,8 @@ Excel → stage1-live-run.py (motor) → playwright-cli -s=chrome-main → Chrom
    `duplicate(x)` (tek Sorgula; aynı sonuç tarih kontrolü ve baseline_ids için kullanılır)
    → `classify_candidates` (EXACT/OVERLAP/AMBIGUOUS, yalnız tarih çakışmasında bilgi
    verir ama ENGEL DEĞİL) → form doldur (js_pre → IBAN Enter →
-   js_post, 2 deneme) → READY_TO_SUBMIT → canlı değilse dur → güvenlik kilidi →
+   js_post, 2 deneme) → READY_TO_SUBMIT → `--simulate-submit` ise TEST- numara yaz
+   ve sonuç Excel'i üret (MYS submit tıklanmaz) → canlı değilse dur → güvenlik kilidi →
    canlıysa tek tık → SUBMITTING → SUBMITTED_UNVERIFIED → STAGE1_COMPLETED
    (doğrulama: baseline ID + tam tarih, sıraya GÜVENME).
 
@@ -102,7 +103,9 @@ Excel → stage1-live-run.py (motor) → playwright-cli -s=chrome-main → Chrom
 ## 4. GÜVENLİK İLKELERİ (DEĞİŞTİRME)
 
 - Canlı gönderim ÇİFT KİLİTLİ: liveSubmissionEnabled=false + --stop-before-submit.
-- Submit butonuna TEK TIK; ikinci tık yasak; belirsizlikte yeniden tıklama YOK.
+- Canlı modda submit butonuna TEK TIK; ikinci tık yasak; belirsizlikte yeniden tıklama YOK.
+- `--simulate-submit` gerçek MYS kaydı oluşturmaz; TEST- önekli numara kullanır.
+- Sonuç dosyası kaynak Excel'in kopyasıdır; `data\Yolluk Sonuc.xlsx` olarak üretilir.
 - Kayıt doğrulama: sıraya değil BASELINE ID'lerden ayrışmış yeni kayıt + tam tarih eşleşmesi.
 - Otomasyon ASLA MYS girişi yapmaz; oturum düşerse kullanıcıdan bekler (ensure_mys_session).
 - E-imza/2FA/CAPTCHA bypass EDİLMEZ.
@@ -129,6 +132,7 @@ STOP_BEFORE_SUBMIT (test modu). Açıklama: config/stage1-status.json.
 python scripts\yolluk-controller.py       # Panel -> http://127.0.0.1:8765
 python scripts\make_test_excel.py         # Sahte test verisi üret
 python scripts\stage1-live-run.py --stop-before-submit   # Güvenli dry-run (kayıt yok)
+python scripts\stage1-live-run.py --simulate-submit      # Test: gerçek kayıt yok, sahte no + sonuç Excel'i
 python tests\test-assignment.py           # ASSIGNMENT TESTS OK
 python tests\test-read-amir.py            # READ_AMIR_TCKN TESTS OK
 
@@ -145,6 +149,28 @@ personel döndürür; geçersizse Ad Soyad/IBAN/Birim Amiri alanları DOM'da hi�
 
 
 ## 8. DEĞİŞİKLİK GÜNLÜĞÜ (CHANGELOG) — en yenisi üstte
+
+### 2026-10-12 — Yolluk Liste 7 ile uyumlu örnek şablon başlıkları
+Amaç: İndirilen boş şablonda kullanılan kurum ve geçici görev kurum sütunlarının
+eksik olmasını gider; kaynak listedeki başlıkları kişisel veri kopyalamadan koru.
+
+| # | Dosya | Değişiklik | Neden / Etki |
+|---|---|---|---|
+| 1 | scripts/workbook_support.py | `GELDİĞİ KURUM`, `GEÇ. GÖREV ÇALIŞTIĞI KURUM` ve `Yolluk Tutar` kaynak başlıkları eklendi; `YOLLUK NO` son sütun olarak bırakıldı. | Boş şablon Yolluk Liste 7 ile aynı kolon düzenini sunar. |
+| 2 | tests/test-workbook-support.py | Tüm örnek şablon başlık sırası ve kişisel veri içermeyen tek başlık satırı doğrulanır. | Şablon düzeninin gerilemesini önler. |
+| 3 | README.md | Şablonun kurum alanları dahil kaynak listedeki başlıkları koruduğu belirtildi. | Kullanıcı şablon içeriğini önceden görür. |
+
+### 2026-10-12 — Son adım simülasyonu ve sonuç Excel'i
+Amaç: MYS'de gerçek kayıt oluşturmadan son gönderim adımını uçtan uca test et ve
+üretilen sahte yolluk numarasını kullanıcıya indirilebilir Excel'de göster.
+
+| # | Dosya | Değişiklik | Neden / Etki |
+|---|---|---|---|
+| 1 | scripts/workbook_support.py | Boş şablona son `YOLLUK NO` sütunu eklendi; kaynak kopyasında satıra TEST- numarası yazma ve benzersiz numara üretme işlevleri eklendi. | Kaynak Excel değişmeden sonuç dosyası indirilebilir. |
+| 2 | scripts/stage1-live-run.py | `--simulate-submit` form hazırken MYS butonuna basmaz; sahte numara üretir, Excel satırına ve checkpoint'e yazar. | Son adımın güvenli testini sağlar; canlı kilitleri değiştirmez. |
+| 3 | scripts/yolluk-controller.py | Panelde simülasyon düğmesi ve sonuç Excel indirme endpoint'i/bağlantısı eklendi. | Test sonucu panelden indirilebilir. |
+| 4 | tests/test-workbook-support.py, tests/test-workbook-panel.py | Şablon başlığı, kopya koruması, sahte numara yazımı ve indirme endpoint'i test edildi. | Excel çıktı akışını doğrular. |
+| 5 | README.md | Simülasyon ve sonuç indirme akışı belgelendi. | Gerçek submit yapılmadığı açıkça belirtilir. |
 
 ### 2026-10-12 — Mükerrer sorguda yalnız tarih çakışması uyarısı
 Amaç: Başka tarihlerdeki geçmiş yolluk kayıtlarını sessizce atla; yalnız aynı/kesişen görev tarihlerini bilgi amaçlı göster ve işleme devam et.

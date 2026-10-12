@@ -11,14 +11,18 @@ def main():
     ap=argparse.ArgumentParser()
     ap.add_argument("--excel")
     ap.add_argument("--live",action="store_true")
+    ap.add_argument("--simulate-submit",action="store_true")
     ap.add_argument("--approve",action="append",default=[])
     a=ap.parse_args()
-    manifest={"stage":"STAGE1","mode":"LIVE" if a.live else "DRY_RUN",
+    if a.live and a.simulate_submit:
+        ap.error("--live ve --simulate-submit aynı anda kullanılamaz.")
+    manifest={"stage":"STAGE1","mode":"LIVE" if a.live else ("SIMULATION" if a.simulate_submit else "DRY_RUN"),
               "sourceWorkbook":a.excel or None,"chatControlled":True,
               "humanApprovalRequiredForOverlap":False}
     MANIFEST.write_text(json.dumps(manifest,ensure_ascii=False,indent=2),encoding="utf-8")
     cmd=[sys.executable,str(RUNNER)]
     if a.live: cmd.append("--live")
+    if a.simulate_submit: cmd.append("--simulate-submit")
     if a.excel: cmd+=["--excel",a.excel]
     for ident in a.approve: cmd+=["--approve",ident]
     p=subprocess.run(cmd,cwd=ROOT,text=True,capture_output=True,encoding="utf-8",errors="replace")

@@ -3,6 +3,7 @@ from pathlib import Path
 import openpyxl
 from assignment import assignment_id,classify_candidates,split_candidates,TRAVEL_TYPE,duty_period
 from playwright_connection import has_green_group,launch_connection_setup,resolve_cli_js
+from workbook_support import initialize_result_workbook,simulated_yolluk_number,write_yolluk_number
 
 ROOT=Path(__file__).resolve().parents[1]
 CFG=json.loads((ROOT/"config/runner-settings.json").read_text(encoding="utf-8-sig"))
@@ -215,9 +216,14 @@ def people():
             "Güncel 'Yolluk Liste' dosyasını bu yollardan birine koyun veya "
             "config/runner-settings.json içindeki 'sourceWorkbook' değerini güncelleyin "
             "(--excel <dosya> ile farklı bir dosya verebilirsiniz).")
-    wb=openpyxl.load_workbook(EXCEL,data_only=True,read_only=True);ws=wb[wb.sheetnames[0]]
-    amir_tckn=read_amir_tckn(wb)
-    rows=list(ws.iter_rows(values_only=True));h=[str(x).strip() if x is not None else "" for x in rows[0]]
+    wb=openpyxl.load_workbook(EXCEL,data_only=True,read_only=True)
+    try:
+        ws=wb[wb.sheetnames[0]]
+        amir_tckn=read_amir_tckn(wb)
+        rows=list(ws.iter_rows(values_only=True))
+    finally:
+        wb.close()
+    h=[str(x).strip() if x is not None else "" for x in rows[0]]
     def ci(*names):
         for n in names:
             if n in h:return h.index(n)
@@ -226,7 +232,7 @@ def people():
     # GÜN SAYISI indeksini bir kez hesapla (önceden her satırda yeniden aranıyordu -> verimsiz).
     gsi=ci("GÜN SAYISI","GUN SAYISI") if ("GÜN SAYISI" in h or "GUN SAYISI" in h) else None
     out=[];skipped=[]
-    for r in rows[1:]:
+    for excel_row,r in enumerate(rows[1:],start=2):
         if not any(x is not None and str(x).strip() for x in r):continue
         try:
             # Bir satır bozuk/format-dışıysa TÜM listeyi çökertme; o satırı atla ve logla.
@@ -234,7 +240,7 @@ def people():
             iban_value=str(r[ii] or "").strip()
             if not valid_tr_iban(iban_value):
                 raise RuntimeError(f"IBAN biçimi/checksum geçersiz: {iban_value!r}")
-            x={"row":r[ri],"tckn":r[ti],"iban":iban_value,"daily":r[ai],
+            x={"row":r[ri],"excelRow":excel_row,"tckn":r[ti],"iban":iban_value,"daily":r[ai],
                "dayCount":(r[gsi] if gsi is not None else None),
                "dutyDates":str(r[di]).strip(),"actualDutyDates":[d.strftime("%d/%m/%Y") for d in dates],
                "start":start,"end":end,"travelType":TRAVEL_TYPE,"amirTckn":amir_tckn}
@@ -281,10 +287,13 @@ def main():
     ap.add_argument("--approve",action="append",default=[])
     ap.add_argument("--skip-duplicate",action="store_true")
     ap.add_argument("--stop-before-submit",action="store_true")
+    ap.add_argument("--simulate-submit",action="store_true")
     ap.add_argument("--force-form-test",action="store_true")
     ap.add_argument("--force-iban-reset",action="store_true")
     ap.add_argument("--excel")
     a=ap.parse_args()
+    if a.simulate_submit and (a.live or a.stop_before_submit):
+        ap.error("--simulate-submit canlı gönderim veya gönderim öncesi durdurma seçenekleriyle birlikte kullanılamaz.")
     global EXCEL,EXCEL_PATHS
     if a.excel:
         EXCEL=(ROOT/a.excel) if not Path(a.excel).is_absolute() else Path(a.excel)
@@ -301,10 +310,17 @@ def main():
         if "Birim Amiri" in msg and "Excel" in msg:
             print(json.dumps({"status":"USER_INFORMATION_REQUIRED","field":"Birim Amiri TCKN","message":msg},ensure_ascii=False)); return
         raise
+    result_excel=ROOT/"data"/"Yolluk Sonuc.xlsx"
+    if a.simulate_submit:
+        initialize_result_workbook(EXCEL,result_excel)
     for x in assignments:
         d=json.loads(CHECK.read_text(encoding="utf-8-sig")) if CHECK.exists() else {}
         old=d.get("records",{}).get(x["assignmentId"],{})
         if old.get("status")=="STAGE1_COMPLETED" and not a.force_form_test: continue
+        if old.get("status")=="SIMULATED_COMPLETED" and not a.force_form_test:
+            if a.simulate_submit and old.get("yollukId"):
+                write_yolluk_number(result_excel,x["excelRow"],old["yollukId"])
+            continue
         approval_granted=(x["assignmentId"] in approvals) or (old.get("approvalGranted") is True)
         if approval_granted: approvals.add(x["assignmentId"])
         save(x,"PROCESSING",approvalGranted=approval_granted)
@@ -374,6 +390,22 @@ def main():
         # dolmadı; submit'a geçme, bir sonraki kişiye geç. Tahmin yok, güvenli atlama.
         if personel_yok: continue
         step("Form hazır", "Yolluk Süreç Hazırlama gönderimine hazır.");save(x,"READY_TO_SUBMIT",approvalGranted=(x["assignmentId"] in approvals))
+        if a.simulate_submit:
+            # Test modu son adımı tamamlanmış gibi kaydeder; MYS submit butonuna hiçbir zaman basmaz.
+            yolluk_no=simulated_yolluk_number()
+            try:
+                write_yolluk_number(result_excel,x["excelRow"],yolluk_no)
+            except (OSError,ValueError,PermissionError) as e:
+                save(x,"ERROR",message=f"Sonuç Excel'ine yolluk no yazılamadı: {e}",testMode="SIMULATED_NO_MYS_SUBMISSION")
+                log(f"SIMULATED_RESULT_WRITE_FAILED assignment={x['assignmentId']} error={e}")
+                raise
+            save(x,"SIMULATED_COMPLETED",yollukId=yolluk_no,testMode="SIMULATED_NO_MYS_SUBMISSION",
+                 resultWorkbook=str(result_excel))
+            step("Test gönderimi simüle edildi",f"Sahte yolluk no {yolluk_no} Excel'e yazıldı; MYS kaydı oluşturulmadı.")
+            log(f"SIMULATED_SUBMISSION assignment={x['assignmentId']} row={x['excelRow']} yollukNo={yolluk_no}")
+            print(json.dumps({"status":"SIMULATED_COMPLETED","assignmentId":x["assignmentId"],
+                              "yollukNo":yolluk_no,"resultWorkbook":str(result_excel)},ensure_ascii=False))
+            continue
         if not a.live: print(json.dumps({"status":"READY_TO_SUBMIT","assignmentId":x["assignmentId"]},ensure_ascii=False)); return
         if not CFG.get("liveSubmissionEnabled") and not a.stop_before_submit: raise RuntimeError("Canlı gönderim kilidi kapalı.")
         if a.stop_before_submit:

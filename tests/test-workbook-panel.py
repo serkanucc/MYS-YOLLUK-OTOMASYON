@@ -29,6 +29,7 @@ def multipart(data, filename="selected-name.xlsx"):
 # Gerçek yerel HTTP endpoint'lerini geçici hedef dosyayla dene; gerçek veri alanına dokunma.
 with TemporaryDirectory() as temp_dir:
     controller.UPLOADED_WORKBOOK = Path(temp_dir) / "uploaded.xlsx"
+    controller.RESULT_WORKBOOK = Path(temp_dir) / "result.xlsx"
     server = controller.ThreadingHTTPServer(("127.0.0.1", 0), controller.Handler)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
@@ -38,12 +39,20 @@ with TemporaryDirectory() as temp_dir:
             page = response.read().decode("utf-8")
             assert 'id="workbookFile"' in page
             assert "Boş şablonu indir" in page
+            assert "Sahte No Üret" in page
+            assert 'id="downloadResult"' in page
 
         with urlopen(base_url + "/api/template") as response:
             template = response.read()
             assert response.headers.get_content_type() == (
                 "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             )
+        try:
+            urlopen(base_url + "/api/result")
+        except HTTPError as error:
+            assert error.code == 404
+        else:
+            raise AssertionError("Henüz üretilmemiş sonuç Excel'i indirilebilir göründü")
 
         boundary, body = multipart(template)
         request = Request(
@@ -58,6 +67,13 @@ with TemporaryDirectory() as temp_dir:
             result = json.loads(response.read())
             assert response.status == 200 and result["ok"]
         assert controller.UPLOADED_WORKBOOK.read_bytes() == template
+
+        controller.RESULT_WORKBOOK.write_bytes(template)
+        with urlopen(base_url + "/api/result") as response:
+            assert response.read() == template
+            assert response.headers.get_content_disposition() == "attachment"
+            assert "MYS-Yolluk-Sonuclari.xlsx" in response.headers.get("Content-Disposition")
+        assert controller.status()["resultWorkbookReady"]
 
         boundary, body = multipart(template)
         request = Request(
@@ -92,8 +108,10 @@ with TemporaryDirectory() as temp_dir:
         controller.steps = Path(temp_dir) / "live-steps.json"
         controller.subprocess.Popen = fake_popen
         try:
-            ok, _ = controller.start(["--stop-before-submit"])
+            ok, _ = controller.start(["--simulate-submit"])
             assert ok
+            assert "--simulate-submit" in commands[0]
+            assert not controller.RESULT_WORKBOOK.exists()
             assert commands[0][-2:] == ["--excel", str(controller.UPLOADED_WORKBOOK)]
         finally:
             controller.subprocess.Popen = old_popen

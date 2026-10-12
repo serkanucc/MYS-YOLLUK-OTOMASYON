@@ -1,6 +1,8 @@
 from io import BytesIO
 import re
+import shutil
 from zipfile import BadZipFile
+from pathlib import Path
 
 import openpyxl
 from openpyxl.utils.exceptions import InvalidFileException
@@ -13,6 +15,8 @@ PERSONNEL_HEADERS = (
     "AD",
     "SOYAD",
     "UNVAN",
+    "GELDİĞİ KURUM",
+    "GEÇ. GÖREV ÇALIŞTIĞI KURUM",
     "DERECE",
     "KADEME",
     "EK GÖSTERGE",
@@ -20,6 +24,8 @@ PERSONNEL_HEADERS = (
     "GEÇ. GÖREV TARİHİ",
     "GÜN SAYISI",
     "IBAN",
+    "Yolluk Tutar",
+    "YOLLUK NO",
 )
 
 
@@ -62,20 +68,21 @@ def validate_workbook(data):
 
 
 def create_template():
-    # Boş şablon aynı sütun/sayfa düzenini sağlar; gerçek personel veya amir verisi içermez.
+    # Yolluk Liste 7 alanlarını koru; gerçek personel/kurum/amir verisini şablona kopyalama.
     workbook = openpyxl.Workbook()
     personnel = workbook.active
     personnel.title = "Personel"
     personnel.append(PERSONNEL_HEADERS)
     personnel.freeze_panes = "A2"
-    personnel.auto_filter.ref = "A1:L1"
+    personnel.auto_filter.ref = f"A1:{personnel.cell(row=1, column=len(PERSONNEL_HEADERS)).column_letter}1"
     personnel.row_dimensions[1].height = 30
     for cell in personnel[1]:
         cell.font = Font(bold=True, color="FFFFFF")
         cell.fill = PatternFill("solid", fgColor="1F4E78")
     for column, width in {
-        "A": 12, "B": 16, "C": 18, "D": 18, "E": 22, "F": 12,
-        "G": 12, "H": 16, "I": 16, "J": 24, "K": 14, "L": 30,
+        "A": 12, "B": 16, "C": 18, "D": 18, "E": 22, "F": 30,
+        "G": 36, "H": 12, "I": 12, "J": 16, "K": 16, "L": 24,
+        "M": 14, "N": 30, "O": 16, "P": 24,
     }.items():
         personnel.column_dimensions[column].width = width
 
@@ -93,3 +100,60 @@ def create_template():
     workbook.save(output)
     workbook.close()
     return output.getvalue()
+
+
+def initialize_result_workbook(source, destination):
+    # Sonuçları kaynak Excel'i değiştirmeyen ayrı bir kopyada biriktir.
+    source = Path(source)
+    destination = Path(destination)
+    if source.resolve() == destination.resolve():
+        raise ValueError("Sonuç Excel'i kaynak dosyanın üzerine yazılamaz.")
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(source, destination)
+
+
+def write_yolluk_number(workbook_path, excel_row, yolluk_no):
+    # Simüle edilen numarayı gerçek Excel satırına yaz; eksik sonuç sütununu sona ekle.
+    from copy import copy
+
+    workbook_path = Path(workbook_path)
+    if excel_row < 2:
+        raise ValueError("Yolluk numarası yalnızca personel veri satırlarına yazılabilir.")
+
+    workbook = openpyxl.load_workbook(workbook_path)
+    temporary = workbook_path.with_name(workbook_path.stem + ".tmp" + workbook_path.suffix)
+    try:
+        personnel = workbook[workbook.sheetnames[0]]
+        headers = {
+            str(cell.value).strip().upper(): cell.column
+            for cell in personnel[1]
+            if cell.value is not None
+        }
+        column = headers.get("YOLLUK NO")
+        if column is None:
+            column = personnel.max_column + 1
+            header = personnel.cell(row=1, column=column)
+            header.value = "YOLLUK NO"
+            if column > 1:
+                header._style = copy(personnel.cell(row=1, column=column - 1)._style)
+            header.font = Font(bold=True, color="FFFFFF")
+            header.fill = PatternFill("solid", fgColor="1F4E78")
+            personnel.column_dimensions[header.column_letter].width = 24
+
+        personnel.cell(row=excel_row, column=column).value = yolluk_no
+        workbook.save(temporary)
+        workbook.close()
+        temporary.replace(workbook_path)
+    except Exception:
+        workbook.close()
+        if temporary.exists():
+            temporary.unlink()
+        raise
+
+
+def simulated_yolluk_number():
+    # TEST- öneki, üretilen değerin MYS tarafından atanmış gerçek numara olmadığını belirtir.
+    from uuid import uuid4
+    from datetime import datetime
+
+    return "TEST-" + datetime.now().strftime("%Y%m%d-%H%M%S") + "-" + uuid4().hex[:8].upper()

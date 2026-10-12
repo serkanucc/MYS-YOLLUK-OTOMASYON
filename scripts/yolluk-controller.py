@@ -15,6 +15,7 @@ LOG=ROOT/"logs/stage1.log"
 steps=ROOT/"data/live-steps.json"
 RUNNER=ROOT/"scripts/stage1-live-run.py"
 UPLOADED_WORKBOOK=ROOT/"data"/"uploaded-workbook.xlsx"
+RESULT_WORKBOOK=ROOT/"data"/"Yolluk Sonuc.xlsx"
 MAX_WORKBOOK_BYTES=20*1024*1024
 PROC=None
 LOCK=threading.Lock()
@@ -35,6 +36,7 @@ def status():
         "steps":live_steps(),
         "runnerRunning":PROC is not None and PROC.poll() is None,
         "uploadedWorkbookReady":UPLOADED_WORKBOOK.exists(),
+        "resultWorkbookReady":RESULT_WORKBOOK.exists() and not (PROC is not None and PROC.poll() is None),
         "liveLocked":not (read_json(CFG,{}).get("liveSubmissionEnabled",False) and not read_json(CFG,{}).get("stopBeforeLiveSubmit",True))
     }
 
@@ -53,6 +55,9 @@ def start(args):
         # Panelden yüklenen dosya varsa, isim/yol değişikliklerinden etkilenmeden onu kullan.
         if UPLOADED_WORKBOOK.exists():
             args=list(args)+["--excel",str(UPLOADED_WORKBOOK)]
+        # Yeni simülasyon başlarken eski sonuç indirme bağlantısını temizle; eski sonuç yenisi sanılmasın.
+        if "--simulate-submit" in args and RESULT_WORKBOOK.exists():
+            RESULT_WORKBOOK.unlink()
         if LOG.exists() and LOG.stat().st_size:
             archive=ROOT/"logs"/"archive"
             archive.mkdir(parents=True,exist_ok=True)
@@ -93,6 +98,7 @@ button:disabled{opacity:.45;cursor:not-allowed}.info{background:#f7f9fb;border-r
 .step{padding:8px 2px;border-bottom:1px solid #e9edf2}
 .step:last-child{border-bottom:0}.step .num{font-weight:800}.step .time{font-size:11px;color:#667085;margin-right:7px}.step .desc{font-size:12px;color:#475467;margin-top:2px}
 .upload{margin-top:14px}.upload input{width:100%;margin:4px 0 8px}.upload .buttons{grid-template-columns:1fr 1fr}.upload button{padding:10px;text-align:center}.uploadStatus{font-size:12px;min-height:18px;margin-top:8px;color:#475467}
+#downloadResult{display:inline-block;text-decoration:none;padding:10px;border-radius:8px;font-weight:700}#downloadResult[hidden]{display:none}
 @media(max-width:900px){.layout{grid-template-columns:1fr}.log{height:450px}}
 </style></head><body><div class="wrap">
 <div class="top"><div><h1>MYS Yolluk Otomasyon</h1><div class="sub">Aşama 1 • Excel → Yolluk Süreç Hazırlama</div></div><div id="badge" class="badge stop">DURDU</div></div>
@@ -102,14 +108,16 @@ button:disabled{opacity:.45;cursor:not-allowed}.info{background:#f7f9fb;border-r
 <div class="card"><h2>Şu an ne yapıyor?</h2><div id="state" class="state">Bekliyor</div><div id="stateSub" class="muted">Henüz işlem başlatılmadı.</div>
 <div class="buttons">
 <button class="primary" onclick="run([])">▶ Kuru Test</button>
-<button class="safe" onclick="run(['--stop-before-submit'])">🧪 Formu Doldur — Gönderme</button>
+<button class="safe" onclick="run(['--simulate-submit'])">🧪 Formu Doldur — Sahte No Üret</button>
+<button class="safe" onclick="run(['--stop-before-submit'])">Formu Doldur — Son Adımda Dur</button>
 <button class="danger" onclick="stopRun()">■ Durdur</button>
 </div>
-<div class="info">Çakışma bulunursa ekranda <b>açık uyarı</b> gösterilir ama otomasyon durmaz; yeni yolluk işlemiyle otomatik devam eder. Teknik ayrıntılar alttaki logda tutulur.</div></div>
+<div class="info">Çakışma bulunursa ekranda <b>açık uyarı</b> gösterilir ama otomasyon durmaz. Sahte No Üret testinde MYS'de kayıt açılmaz; oluşturulan Excel'deki TEST- numarası sahtedir. Teknik ayrıntılar alttaki logda tutulur.</div></div>
 <div class="card upload"><h2>Excel dosyası</h2><div class="muted">Dosya adından ve konumundan bağımsız olarak Excel’i buradan yükleyebilirsiniz.</div>
 <input id="workbookFile" type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet">
 <div class="buttons"><button class="primary" onclick="uploadWorkbook()">Excel’i Yükle</button><button class="safe" onclick="location.href='/api/template'">Boş şablonu indir</button></div>
 <div id="uploadStatus" class="uploadStatus">Yüklenmiş Excel yok; ayarlardaki yol kullanılacak.</div>
+<a id="downloadResult" class="safe" href="/api/result" hidden>Sonuç Excel’ini indir</a>
 <div class="info">Şablonda personel satırlarını ve Birim Amiri sayfasındaki TC/TCKN değerini doldurun. Yükleme yerel bilgisayarda saklanır.</div></div>
 <div class="card" style="margin-top:14px"><h2>İşlem adımları <span class="muted">• canlı</span></h2><div id="steps" class="steps">-</div></div>
 <div class="card" style="margin-top:14px"><h2>Son işlem</h2><div id="detail" class="detail">-</div></div>
@@ -131,18 +139,20 @@ async function uploadWorkbook(){
 }
 function stateText(s){
  let x=s.last||{},st=x.status||'IDLE';
- const map={PROCESSING:'İşlem yapılıyor',WAITING_FOR_USER_APPROVAL:'Eski durum',DUPLICATE_APPROVED:'Eski durum',DUPLICATE_WARNING_CONTINUING:'Mevcut kayıt var — devam ediliyor (bilgi)',READY_TO_SUBMIT:'Form hazır — gönderilmedi',ERROR:'İŞLEM DURDU — HATA',STAGE1_COMPLETED:'Tamamlandı',SUBMITTING:'Canlı kayıt gönderiliyor',SUBMITTED_UNVERIFIED:'Gönderildi — doğrulama bekleniyor',AMBIGUOUS_DUPLICATE:'Tarih belirsizliği — bilgiyle devam ediliyor'};
+ const map={PROCESSING:'İşlem yapılıyor',WAITING_FOR_USER_APPROVAL:'Eski durum',DUPLICATE_APPROVED:'Eski durum',DUPLICATE_WARNING_CONTINUING:'Mevcut kayıt var — devam ediliyor (bilgi)',READY_TO_SUBMIT:'Form hazır — gönderilmedi',SIMULATED_COMPLETED:'Test tamamlandı — sahte numara',ERROR:'İŞLEM DURDU — HATA',STAGE1_COMPLETED:'Tamamlandı',SUBMITTING:'Canlı kayıt gönderiliyor',SUBMITTED_UNVERIFIED:'Gönderildi — doğrulama bekleniyor',AMBIGUOUS_DUPLICATE:'Tarih belirsizliği — bilgiyle devam ediliyor'};
  return [map[st]||st,st]
 }
 async function refresh(){
  try{
  let s=await api('/api/status'), [label,st]=stateText(s);
  let uploadStatus=document.getElementById('uploadStatus');
+ let downloadResult=document.getElementById('downloadResult');if(downloadResult)downloadResult.hidden=!s.resultWorkbookReady;
  if(uploadStatus&&!uploadStatus.textContent.startsWith('Yükleme başarısız:')&&!uploadStatus.textContent.includes('doğrulanıyor'))uploadStatus.textContent=s.uploadedWorkbookReady?'Yüklenmiş Excel hazır; panel işlemlerinde bu dosya kullanılacak.':'Yüklenmiş Excel yok; ayarlardaki yol kullanılacak.';
  document.getElementById('state').textContent=s.runnerRunning?'● '+label:label;
  document.getElementById('stateSub').textContent=s.runnerRunning?'Otomasyon aktif.':(st==='ERROR'?'Güvenli noktada durdu. Ayrıntı aşağıda ve logda.':st==='WAITING_FOR_USER_APPROVAL'?'Çakışma bulundu. Devam için onay gerekiyor.':'Otomasyon şu anda çalışmıyor.');
  let b=document.getElementById('badge');b.textContent=s.runnerRunning?'ÇALIŞIYOR':'DURDU';b.className='badge '+(s.runnerRunning?'run':'stop');
  let x=s.last||{}, detail='<b>Durum:</b> '+(x.status||'-')+'<br><b>Satır:</b> '+(x.row||'-')+'<br><b>Tarih:</b> '+(x.mysStart||'-')+' → '+(x.mysEnd||'-');
+ if(x.yollukId)detail+='<br><b>Yolluk No:</b> '+x.yollukId;
  if(x.warning)detail+='<br><b>Uyarı:</b> '+x.warning;if(x.message)detail+='<br><b>Hata:</b> '+x.message;
  document.getElementById('detail').innerHTML=detail;
  let steps=s.steps||[];
@@ -175,6 +185,10 @@ class Handler(BaseHTTPRequestHandler):
             b=HTML.encode("utf-8");self.send_response(200);self.send_header("Content-Type","text/html; charset=utf-8");self.send_header("Content-Length",str(len(b)));self.end_headers();self.wfile.write(b);return
         if p.path=="/api/template":
             b=create_template();self.send_response(200);self.send_header("Content-Type","application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");self.send_header("Content-Disposition",'attachment; filename="MYS-Yolluk-Sablon.xlsx"');self.send_header("Content-Length",str(len(b)));self.end_headers();self.wfile.write(b);return
+        if p.path=="/api/result":
+            # HTTP status başlığı Latin-1 kodlandığından hata nedeni ASCII tutulur.
+            if not RESULT_WORKBOOK.is_file():self.send_error(404,"Result workbook is not available yet.");return
+            b=RESULT_WORKBOOK.read_bytes();self.send_response(200);self.send_header("Content-Type","application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");self.send_header("Content-Disposition",'attachment; filename="MYS-Yolluk-Sonuclari.xlsx"');self.send_header("Content-Length",str(len(b)));self.end_headers();self.wfile.write(b);return
         if p.path=="/api/status":self.sendj(status());return
         if p.path=="/api/log":self.sendj({"lines":logs()});return
         self.send_error(404)
