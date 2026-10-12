@@ -43,6 +43,8 @@ Excel → stage1-live-run.py (motor) → playwright-cli -s=chrome-main → Chrom
 | `assignment.py` | **Saf mantık.** Tarih çözümleme (`duty_period`), görev kimliği (`assignment_id`), çakışma sınıflandırma (`classify_candidates`). Testli. | ✅ Aktif |
 | `yolluk-controller.py` | **Kontrol paneli** (http://127.0.0.1:8765). Durum, canlı adımlar, log, başlat/durdur. | ✅ Aktif |
 | `yolluk-panel.bat` | Paneli başlatır (port açıksa sadece tarayıcı açar). | ✅ Aktif |
+| `playwright_connection.py` | Playwright CLI yolunu çözer, yeşil Chrome grubunu doğrular ve gerektiğinde proje içi bağlantı BAT'ını başlatır. | ✅ Aktif |
+| `playwright-connection/` | Kullanıcının Chrome Allow & select bağlantı akışının projeye taşınmış guard/BAT dosyaları. | ✅ Aktif |
 | `stage1-flow-pre.js` | Formun ilk yarısı (TCKN, Mernis, maaş, IBAN). `needsIbanCommit` döner. | ✅ Aktif |
 | `stage1-flow-post.js` | Formun ikinci yarısı (tarih, kaynak/program/faaliyet, bütçe tertibi, Birim Amiri). `submitDisabled` döner. | ✅ Aktif |
 | `stage1-flow.js` | pre+post birleşik hali (eski tek parça). `make_iban_flows.py` ile üretilir. | ⚠️ Referans |
@@ -88,8 +90,9 @@ Excel → stage1-live-run.py (motor) → playwright-cli -s=chrome-main → Chrom
 3. Excel okuma (`people`): dosya yoksa net hata; SATIR BAZLI HATA DAYANIKLI
    (bozuk satırı atla+logla, `EXCEL_ROW_SKIPPED`).
 4. Her personel için: STAGE1_COMPLETED ise atla → save(PROCESSING) →
-   `duplicate(x)` (Sorgula) → `classify_candidates` (EXACT/OVERLAP/AMBIGUOUS,
-   uyarı ama ENGEL DEĞİL) → baseline_ids topla → form doldur (js_pre → IBAN Enter →
+   `duplicate(x)` (tek Sorgula; aynı sonuç tarih kontrolü ve baseline_ids için kullanılır)
+   → `classify_candidates` (EXACT/OVERLAP/AMBIGUOUS, yalnız tarih çakışmasında bilgi
+   verir ama ENGEL DEĞİL) → form doldur (js_pre → IBAN Enter →
    js_post, 2 deneme) → READY_TO_SUBMIT → canlı değilse dur → güvenlik kilidi →
    canlıysa tek tık → SUBMITTING → SUBMITTED_UNVERIFIED → STAGE1_COMPLETED
    (doğrulama: baseline ID + tam tarih, sıraya GÜVENME).
@@ -142,6 +145,50 @@ personel döndürür; geçersizse Ad Soyad/IBAN/Birim Amiri alanları DOM'da hi�
 
 
 ## 8. DEĞİŞİKLİK GÜNLÜĞÜ (CHANGELOG) — en yenisi üstte
+
+### 2026-10-12 — Mükerrer sorguda yalnız tarih çakışması uyarısı
+Amaç: Başka tarihlerdeki geçmiş yolluk kayıtlarını sessizce atla; yalnız aynı/kesişen görev tarihlerini bilgi amaçlı göster ve işleme devam et.
+
+| # | Dosya | Değişiklik | Neden / Etki |
+|---|---|---|---|
+| 1 | scripts/stage1-live-run.py | Duplicate sonuçlarından yalnız kesin EXACT/OVERLAP aralıkları seçilir; uyarı metni çakışan tarihleri açıkça listeler. AMBIGUOUS ve farklı tarihli kayıtlar uyarı üretmez. | Kullanıcı yalnız istenen tarih çakışmasında bilgilendirilir; işlem hata sayılmaz ve durmaz. |
+| 2 | tests/test-assignment.py | Farklı tarihin sessiz kalması ve belirsiz kaydın uyarı listesinden çıkarılması testleri eklendi. | Tarih çakışması bildirim kapsamını korur. |
+
+### 2026-10-12 — Playwright bağlantısını otomatik başlatma
+Amaç: Kullanıcı bağlantı BAT'ını elle çalıştırmadan önce `chrome-main` ve Chrome yeşil grubunu denetle; eksik bağlantıda mevcut Allow & select akışını başlat.
+
+| # | Dosya | Değişiklik | Neden / Etki |
+|---|---|---|---|
+| 1 | config/runner-settings.json | `autoStartPlaywrightConnection` ayarı eklendi (varsayılan açık). | İstenirse otomatik başlatma kapatılabilir. |
+| 2 | scripts/playwright_connection.py | CLI JS çözümleme, yeşil grup kontrolü ve proje içi BAT başlatma işlevleri eklendi. | Kullanıcı klasörüne sabit yol koymadan bağlantı akışını kullanır. |
+| 3 | scripts/playwright-connection/ | Kullanıcının BAT/PowerShell guard akışı proje içine taşındı; sabit kullanıcı yolu kaldırılıp npm/APPDATA üzerinden çözülüyor. | Aynı bağlantı davranışını proje içinden çalıştırır; sağlıklı oturumda yeni attach açmaz. |
+| 4 | scripts/stage1-live-run.py | Sağlık kontrolü yeşil Chrome grubunu da şart koşar; eksik bağlantıda yardımcı BAT bir kez başlatılır ve kullanıcı onayı beklenir. | Attach var ama kullanıcı Allow & select yapmamışsa otomasyon erken ilerlemez. |
+| 5 | tests/test-playwright-connection.py | CLI yolu, yardımcı BAT çağrısı ve sağlıklı/eksik bağlantıda başlatma davranışı test edildi. | Otomatik bağlantı başlatıcısının taşınabilirliğini ve hazır bağlantıyı çoğaltmamasını doğrular. |
+| 6 | README.md | Otomatik bağlantı davranışı, kullanıcı adımları ve diğer session'ları detach edebilmesi belgelendi. | Beklenen izin adımları ve guard yan etkisi açıklanır. |
+
+### 2026-10-12 — Çalışma ortasında yeniden attach'i engelleme
+Amaç: Form doldurma sırasında yeşil grup kontrolünün geçici başarısızlığıyla bağlantı BAT'ının yeniden açılmasını önle.
+
+| # | Dosya | Değişiklik | Neden / Etki |
+|---|---|---|---|
+| 1 | scripts/stage1-live-run.py | Yeşil grup ve otomatik başlatma yalnız otomasyon başlangıcında çalışır; sonraki Playwright komutları mevcut CLI attach'i bekler ve yeni attach başlatmaz. | Form akışı ortasında gereksiz Allow & select/reattach oluşmaz; bağlantı koparsa kullanıcı bağlantıyı düzeltince akış sürer. |
+| 2 | tests/test-playwright-connection.py | Başlangıçta bir kez başlatma, hazır bağlantıda başlatmama ve işlem sırasında başlatmama durumları test edildi. | İstenmeyen ara bağlantı başlatmasının regresyonunu engeller. |
+
+### 2026-10-12 — Submit öncesi MYS sorgusunu tekilleştirme
+Amaç: Aynı kişi için tarih çakışması ve baseline kayıt ID'leri amacıyla yapılan yinelenen Sorgula işlemini tek sorguda birleştir.
+
+| # | Dosya | Değişiklik | Neden / Etki |
+|---|---|---|---|
+| 1 | scripts/stage1-live-run.py | Duplicate kontrolündeki taze sorgu sonucu baseline ID toplamada yeniden kullanılıyor; ikinci pre-submit sorgu kaldırıldı. `--skip-duplicate` verilirse baseline için tek sorgu yapılır. | Normal akışta form açılmadan önce aynı TCKN için iki Sorgula yerine bir Sorgula yapılır; submit sonrası doğrulama sorgusu aynen korunur. |
+
+### 2026-10-12 — Panel BAT güvenli yeniden başlatma
+Amaç: BAT ile açılan panel eski kodu bellekte tutup yeni Excel ekranını göstermeme sorununu çöz.
+
+| # | Dosya | Değişiklik | Neden / Etki |
+|---|---|---|---|
+| 1 | scripts/yolluk-panel.bat | Önce güvenli panel yenileme betiği çağrılıyor; ardından proje sanal ortamı tercih edilerek sunucu açılıyor ve hazır olunca tarayıcı açılıyor. | Var olan panel sürecinde eski HTML görünmesini önler; eksik/başarısız başlatmayı ekranda bildirir. |
+| 2 | scripts/restart-panel.ps1 | Yalnızca doğrulanmış Python panel PID'si ve otomasyon boşta ise `Stop-Process -Id` ile kapatılır; port sahibi belirsizse veya iş sürüyorsa kapatma reddedilir. | Başka uygulamayı veya devam eden MYS otomasyonunu yanlışlıkla durdurmayı önler. |
+| 3 | README.md | BAT başlatıcısının güvenli yenileme davranışı belgelendi. | Çalışma sürerken paneli kapatmanın neden engellendiğini açıklar. |
 
 ### 2026-10-12 — Panelden Excel yükleme ve boş şablon
 Amaç: Dosya adı/konumu değişse de kullanıcıya panelden Excel seçip yükleme ve doğru kolonlu boş şablon indirme imkânı ver.

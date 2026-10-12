@@ -1,7 +1,8 @@
 import json,os,re,shutil,subprocess,time,argparse
 from pathlib import Path
 import openpyxl
-from assignment import assignment_id,classify_candidates,TRAVEL_TYPE,duty_period
+from assignment import assignment_id,classify_candidates,split_candidates,TRAVEL_TYPE,duty_period
+from playwright_connection import has_green_group,launch_connection_setup,resolve_cli_js
 
 ROOT=Path(__file__).resolve().parents[1]
 CFG=json.loads((ROOT/"config/runner-settings.json").read_text(encoding="utf-8-sig"))
@@ -47,12 +48,12 @@ def resolve_cli():
 CLI=resolve_cli()
 
 
-def playwright_health():
+def playwright_health(require_green=True):
     """Bağlantı durumunu Playwright CLI oturum listesinden okur.
-    Bu proje hiçbir şekilde attach başlatmaz; bağlantı kullanıcı tarafından başlatılır.
+    Başlangıçta istenirse chrome-main attach'i ve Chrome'daki yeşil grubu doğrular.
 
     Dönen değerler:
-      OK              : hedef session açık ve attach
+      OK              : hedef session açık/attach; istenirse yeşil Playwright grubu da var
       NO_CONNECTION   : CLI çalışıyor ama hedef session yok / attach değil
       SESSION_CONFLICT: birden fazla aynı adlı session (uyumsuz durum)
       CLI_MISSING     : playwright-cli.cmd hiç bulunamadı (kurulum/yol sorunu)
@@ -62,7 +63,7 @@ def playwright_health():
         return "CLI_MISSING"
     try:
         raw=subprocess.run([CLI,"list","--all","--json"],capture_output=True,text=True,encoding="utf-8",errors="replace",timeout=10)
-    except Exception:
+    except (OSError,subprocess.SubprocessError,RuntimeError):
         return "CLI_ERROR"
     if raw.returncode != 0 or not raw.stdout.strip():
         return "CLI_ERROR"
@@ -76,17 +77,22 @@ def playwright_health():
     if len(cm)>1:
         return "SESSION_CONFLICT"
     if len(cm)==1 and cm[0].get("status")=="open" and cm[0].get("attached") is True:
-        return "OK"
+        if not require_green:
+            return "OK"
+        try:
+            return "OK" if has_green_group(ROOT/"scripts/playwright-connection/PW-GREEN-CHECK.ps1") else "NO_CONNECTION"
+        except Exception:
+            return "CLI_ERROR"
     return "NO_CONNECTION"
 
 
-def wait_for_playwright(context="",max_wait=None):
-    """Bağlantı yoksa işlemi güvenli noktada bekletir; otomatik ikinci attach yapmaz.
-    CLI kurulu değilse (CLI_MISSING) beklemek anlamsızdır; hemen hata verir.
+def wait_for_playwright(context="",max_wait=None,auto_start=False,require_green=True):
+    """Yalnız açıkça istendiğinde eksik başlangıç bağlantısını kur; çalışma ortasında attach başlatma.
+    Sağlıklı bağlantı varsa yeni attach açılmaz. CLI kurulu değilse hemen hata verir.
     max_wait: saniye; verilirse bu süre içinde bağlantı kurulmazsa sessizce döner."""
-    start=time.time();last=None
+    start=time.time();last=None;connection_started=False
     while True:
-        state=playwright_health()
+        state=playwright_health(require_green=require_green)
         if state=="OK":
             if last is not None:
                 log("PLAYWRIGHT_RECONNECTED | chrome-main oturumu dogrulandi")
@@ -94,6 +100,15 @@ def wait_for_playwright(context="",max_wait=None):
             return
         if state=="CLI_MISSING":
             raise RuntimeError("playwright-cli.cmd bulunamadı. Playwright CLI kurulumunu veya cliPath ayarını kontrol edin.")
+        if state=="NO_CONNECTION" and auto_start and CFG.get("autoStartPlaywrightConnection",True) and not connection_started:
+            cli_js=resolve_cli_js(CLI,os.environ.get("APPDATA"))
+            if not cli_js:
+                raise RuntimeError("Playwright bağlantı başlatıcısı için playwright-cli.js bulunamadı. CLI kurulumunu veya cliPath ayarını kontrol edin.")
+            step("Playwright bağlantısı başlatılıyor","Var olan bağlantı kontrol ediliyor; hazır bağlantı korunacak, yoksa Allow & select açılacak.")
+            log("PLAYWRIGHT_AUTOSTART | local connection helper")
+            launch_connection_setup(ROOT,cli_js)
+            connection_started=True
+            last="NO_CONNECTION"
         msg={
             "NO_CONNECTION":"Playwright bağlantısı bekleniyor",
             "SESSION_CONFLICT":"Playwright bağlantı durumu tutarsız: birden fazla/uyumsuz chrome-main oturumu",
@@ -113,7 +128,8 @@ def is_login_page(url):
     return any(k in s for k in ("giris.hmb.gov.tr","/login","callbackauthorize","oauth2.0","cas/login"))
 
 def pw(*args):
-    wait_for_playwright("Playwright işlemi öncesi kontrol")
+    # Akış sırasında bağlantı koparsa bekle; yeni BAT/attach başlatma ve Chrome izin durumunu yeniden sorgulama.
+    wait_for_playwright("Playwright işlemi öncesi kontrol",auto_start=False,require_green=False)
     p=subprocess.run([CLI,"-s="+str(CFG.get("browserSession","chrome-main")),*args],capture_output=True,text=True,encoding="utf-8",errors="replace")
     if p.returncode: raise RuntimeError(p.stderr or p.stdout)
     if args and args[0]=="goto" and len(args)>1:
@@ -274,8 +290,10 @@ def main():
         EXCEL=(ROOT/a.excel) if not Path(a.excel).is_absolute() else Path(a.excel)
         EXCEL_PATHS=[EXCEL]
     approvals=set(a.approve)|approved_ids(a)
-    # BAŞLANGIÇ KONTROLÜ: Excel/form işlemine geçmeden önce bağlantı kesinlikle hazır olmalı.
-    wait_for_playwright("MYS otomasyonu başlangıç kontrolü")
+    # Allow & select yalnız otomasyon başlamadan önce eksik bağlantı varsa bir kez tetiklenir.
+    wait_for_playwright("MYS otomasyonu başlangıç kontrolü",
+                        auto_start=True,
+                        require_green=True)
     try:
         assignments=people()
     except RuntimeError as e:
@@ -291,17 +309,25 @@ def main():
         if approval_granted: approvals.add(x["assignmentId"])
         save(x,"PROCESSING",approvalGranted=approval_granted)
         log(f"PROCESSING assignment={x['assignmentId']} row={x['row']}");step("Kişi işleme alındı", f"Excel satırı {x['row']}")
-        matches=[]
+        matches=[];baseline_q=None
         if not a.skip_duplicate:
             step("MYS kayıtları kontrol ediliyor");q=duplicate(x)
-            matches=classify_candidates(q.get("candidates",[]),x)
+            # Aynı taze sorgu hem tarih çakışması hem de submit öncesi baseline ID'ler için kullanılır.
+            baseline_q=q
+            # Yalnızca doğrulanmış aynı/kesişen tarih aralıklarını bildir; diğer ve belirsiz kayıtlar sessiz kalır.
+            classified=classify_candidates(q.get("candidates",[]),x)
+            matches,_=split_candidates(classified)
             if matches:
-                warning="MEVCUT KAYIT BİLGİSİ: Aynı personel için yolluk kaydı bulundu (aynı tarihlerde dahi olabilir — normal durum). Onay gerekmiyor; otomasyon devam ediyor."
+                date_ranges=", ".join(f"{match['start']} - {match['end']}" for match in matches)
+                warning=("TARİH ÇAKIŞMASI BİLGİSİ: Bu tarihlerde daha önce yolluk bildirimi yapılmış: "
+                         f"{date_ranges}. Bu bir hata değildir; bilgilendirme yapıldı ve otomasyon devam ediyor.")
                 save(x,"DUPLICATE_WARNING_CONTINUING",matches=matches,approvalGranted=False,warning=warning)
                 log(f"DUPLICATE_WARNING_CONTINUING assignment={x['assignmentId']} matches={len(matches)} -> devam ediliyor")
-                step("Mevcut kayıt bulundu", "Bilgi amaçlı: aynı tarihlerde dahi yeni işlem açılabilir; onay beklemeden deviliyor.")
-        # Formu açmadan hemen önce listeyi bir kez daha tazele; mevcut kayıt ID'lerini referans al.
-        step("Yeni form açılıyor");baseline_q=query_yolluk_list(x["tckn"])
+                step("Tarih çakışması bulundu", warning)
+        # Duplicate kontrolü atlandıysa baseline için sorgula; normal akışta ikinci sorguyu yapma.
+        if baseline_q is None:
+            step("MYS kayıtları baseline için sorgulanıyor");baseline_q=query_yolluk_list(x["tckn"])
+        step("Yeni form açılıyor")
         baseline_ids=set()
         for bc in baseline_q.get("candidates",[]):
             for bu in bc.get("links",[]):
@@ -387,4 +413,3 @@ def main():
     print(json.dumps({"status":"RUN_COMPLETE"},ensure_ascii=False))
 
 if __name__=="__main__": main()
-

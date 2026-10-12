@@ -1,5 +1,6 @@
 {
   "browserSession": "chrome-main",
+  "autoStartPlaywrightConnection": true,
   "formUrl": "https://butunlesik.hmb.gov.tr/hys/mys-yollukislemleri/yolluk/add",
   "queryUrl": "https://butunlesik.hmb.gov.tr/hys/mys-yollukislemleri/yolluk",
   "liveSubmissionEnabled": false,
