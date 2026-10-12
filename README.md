@@ -44,6 +44,9 @@ sütununa yazılır. Tamamlandığında **Sonuç Excel'ini indir** bağlantısı
 Boş şablonda bu sütun son sütun olarak bulunur; eski Excel'lerde sonuç kopyasına
 otomatik eklenir. `Formu Doldur — Son Adımda Dur` seçeneği ise numara üretmeden
 mevcut güvenli davranışı korur.
+Sonuç dosyası yalnız mevcut panel oturumunda başarıyla tamamlanan simülasyondan sonra
+indirilebilir; panel yeniden başlatıldığında veya yeni Excel yüklendiğinde önceki
+sonuç geçersiz kılınır.
 
 Otomasyon başlangıcında `chrome-main` ve Chrome'daki yeşil Playwright grubu kontrol
 edilir. `autoStartPlaywrightConnection` açıkken bağlantı hazır değilse proje içindeki

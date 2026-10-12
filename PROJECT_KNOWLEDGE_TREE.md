@@ -106,6 +106,7 @@ Excel → stage1-live-run.py (motor) → playwright-cli -s=chrome-main → Chrom
 - Canlı modda submit butonuna TEK TIK; ikinci tık yasak; belirsizlikte yeniden tıklama YOK.
 - `--simulate-submit` gerçek MYS kaydı oluşturmaz; TEST- önekli numara kullanır.
 - Sonuç dosyası kaynak Excel'in kopyasıdır; `data\Yolluk Sonuc.xlsx` olarak üretilir.
+- Sonuç Excel'i panel oturumunda üretilmiş başarılı simülasyondan sonra sunulur; panel açılışında veya yeni Excel yüklemesinde önceki sonuç geçersiz kılınır.
 - Kayıt doğrulama: sıraya değil BASELINE ID'lerden ayrışmış yeni kayıt + tam tarih eşleşmesi.
 - Otomasyon ASLA MYS girişi yapmaz; oturum düşerse kullanıcıdan bekler (ensure_mys_session).
 - E-imza/2FA/CAPTCHA bypass EDİLMEZ.
@@ -149,6 +150,16 @@ personel döndürür; geçersizse Ad Soyad/IBAN/Birim Amiri alanları DOM'da hi�
 
 
 ## 8. DEĞİŞİKLİK GÜNLÜĞÜ (CHANGELOG) — en yenisi üstte
+
+### 2026-10-12 — Eski sonuç Excel'ini yeniden sunmayı engelleme
+Amaç: Panel yeniden açıldığında veya başka bir Excel yüklendiğinde önceki çalıştırmanın
+sonucunun yeni sonuç gibi indirilebilmesini önle.
+
+| # | Dosya | Değişiklik | Neden / Etki |
+|---|---|---|---|
+| 1 | scripts/yolluk-controller.py | Açılışta ve yeni iş/yüklemede eski sonuç temizlenir; indirme yalnız panel oturumunda başarıyla tamamlanan simülasyon için açılır. | Önceki oturumun dosyası tekrar sunulmaz; başarısız/çalışan simülasyon indirmeye kapalıdır. |
+| 2 | tests/test-workbook-panel.py | Eski dosya, devam eden simülasyon ve tamamlanmış simülasyon indirmesi doğrulanır. | Sonuç Excel'i oturum sahipliği ve bitiş durumuna göre test edilir. |
+| 3 | README.md, PROJECT_KNOWLEDGE_TREE.md | Sonuç dosyasının oturum-geçerliliği belgelenir. | Kullanıcının sonuç dosyası davranışı açıktır. |
 
 ### 2026-10-12 — Yolluk Liste 7 ile uyumlu örnek şablon başlıkları
 Amaç: İndirilen boş şablonda kullanılan kurum ve geçici görev kurum sütunlarının

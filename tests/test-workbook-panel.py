@@ -30,6 +30,7 @@ def multipart(data, filename="selected-name.xlsx"):
 with TemporaryDirectory() as temp_dir:
     controller.UPLOADED_WORKBOOK = Path(temp_dir) / "uploaded.xlsx"
     controller.RESULT_WORKBOOK = Path(temp_dir) / "result.xlsx"
+    controller.RESULT_SIMULATION_SESSION = False
     server = controller.ThreadingHTTPServer(("127.0.0.1", 0), controller.Handler)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
@@ -54,6 +55,18 @@ with TemporaryDirectory() as temp_dir:
         else:
             raise AssertionError("Henüz üretilmemiş sonuç Excel'i indirilebilir göründü")
 
+        # Eski diskteki sonuç, panel oturumunda yeni simülasyon yapılmadan sunulmamalı.
+        controller.RESULT_WORKBOOK.write_bytes(template)
+        try:
+            urlopen(base_url + "/api/result")
+        except HTTPError as error:
+            assert error.code == 404
+        else:
+            raise AssertionError("Önceki oturumun sonuç Excel'i indirilebilir göründü")
+        assert not controller.status()["resultWorkbookReady"]
+        controller.reset_result_workbook()
+        assert not controller.RESULT_WORKBOOK.exists()
+
         boundary, body = multipart(template)
         request = Request(
             base_url + "/api/upload",
@@ -69,11 +82,35 @@ with TemporaryDirectory() as temp_dir:
         assert controller.UPLOADED_WORKBOOK.read_bytes() == template
 
         controller.RESULT_WORKBOOK.write_bytes(template)
+        controller.RESULT_SIMULATION_SESSION = True
+
+        class CompletedProcess:
+            returncode = 0
+            def poll(self):
+                return self.returncode
+
+        old_proc = controller.PROC
+        controller.PROC = CompletedProcess()
         with urlopen(base_url + "/api/result") as response:
             assert response.read() == template
             assert response.headers.get_content_disposition() == "attachment"
             assert "MYS-Yolluk-Sonuclari.xlsx" in response.headers.get("Content-Disposition")
         assert controller.status()["resultWorkbookReady"]
+        controller.PROC = old_proc
+
+        boundary, body = multipart(template)
+        request = Request(
+            base_url + "/api/upload",
+            data=body,
+            headers={
+                "Content-Type": f"multipart/form-data; boundary={boundary}",
+                "Origin": base_url,
+            },
+        )
+        with urlopen(request) as response:
+            assert json.loads(response.read())["ok"]
+        assert not controller.RESULT_WORKBOOK.exists()
+        assert not controller.status()["resultWorkbookReady"]
 
         boundary, body = multipart(template)
         request = Request(
@@ -112,6 +149,14 @@ with TemporaryDirectory() as temp_dir:
             assert ok
             assert "--simulate-submit" in commands[0]
             assert not controller.RESULT_WORKBOOK.exists()
+            assert controller.RESULT_SIMULATION_SESSION
+            assert not controller.status()["resultWorkbookReady"]
+            try:
+                urlopen(base_url + "/api/result")
+            except HTTPError as error:
+                assert error.code == 404
+            else:
+                raise AssertionError("Tamamlanmamış simülasyonun Excel'i indirilebilir göründü")
             assert commands[0][-2:] == ["--excel", str(controller.UPLOADED_WORKBOOK)]
         finally:
             controller.subprocess.Popen = old_popen

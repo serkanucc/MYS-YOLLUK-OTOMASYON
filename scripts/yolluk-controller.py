@@ -18,6 +18,7 @@ UPLOADED_WORKBOOK=ROOT/"data"/"uploaded-workbook.xlsx"
 RESULT_WORKBOOK=ROOT/"data"/"Yolluk Sonuc.xlsx"
 MAX_WORKBOOK_BYTES=20*1024*1024
 PROC=None
+RESULT_SIMULATION_SESSION=False
 LOCK=threading.Lock()
 
 def read_json(p,default):
@@ -28,15 +29,18 @@ def status():
     d=read_json(CHECK,{"records":{},"lastAssignment":None})
     records=d.get("records",{})
     last=records.get(d.get("lastAssignment"),{})
+    runner_running=PROC is not None and PROC.poll() is None
     return {
         "stage":d.get("stage","STAGE1"),
         "lastAssignment":d.get("lastAssignment"),
         "last":last,
         "records":records,
         "steps":live_steps(),
-        "runnerRunning":PROC is not None and PROC.poll() is None,
+        "runnerRunning":runner_running,
         "uploadedWorkbookReady":UPLOADED_WORKBOOK.exists(),
-        "resultWorkbookReady":RESULT_WORKBOOK.exists() and not (PROC is not None and PROC.poll() is None),
+        # Yalnız bu panel oturumunda başlatılıp başarıyla biten simülasyon indirilebilir.
+        "resultWorkbookReady":RESULT_SIMULATION_SESSION and PROC is not None and not runner_running
+            and PROC.returncode==0 and RESULT_WORKBOOK.is_file(),
         "liveLocked":not (read_json(CFG,{}).get("liveSubmissionEnabled",False) and not read_json(CFG,{}).get("stopBeforeLiveSubmit",True))
     }
 
@@ -48,16 +52,22 @@ def live_steps():
     try: return json.loads(steps.read_text(encoding="utf-8"))
     except: return []
 
+def reset_result_workbook():
+    # Panel oturumu veya yeni iş başladığında önceki simülasyon sonucunu indirmeye kapat.
+    global RESULT_SIMULATION_SESSION
+    RESULT_SIMULATION_SESSION=False
+    RESULT_WORKBOOK.unlink(missing_ok=True)
+
 def start(args):
-    global PROC
+    global PROC,RESULT_SIMULATION_SESSION
     with LOCK:
         if PROC is not None and PROC.poll() is None:return False,"Otomasyon zaten çalışıyor."
+        # Her yeni işte önceki sonucu kaldır; yalnız yeni simülasyon çıktısı bu oturumda sunulabilir.
+        reset_result_workbook()
+        simulate_result="--simulate-submit" in args
         # Panelden yüklenen dosya varsa, isim/yol değişikliklerinden etkilenmeden onu kullan.
         if UPLOADED_WORKBOOK.exists():
             args=list(args)+["--excel",str(UPLOADED_WORKBOOK)]
-        # Yeni simülasyon başlarken eski sonuç indirme bağlantısını temizle; eski sonuç yenisi sanılmasın.
-        if "--simulate-submit" in args and RESULT_WORKBOOK.exists():
-            RESULT_WORKBOOK.unlink()
         if LOG.exists() and LOG.stat().st_size:
             archive=ROOT/"logs"/"archive"
             archive.mkdir(parents=True,exist_ok=True)
@@ -66,8 +76,13 @@ def start(args):
         LOG.write_text("",encoding="utf-8")
         steps.write_text("[]",encoding="utf-8")
         out=LOG.open("a",encoding="utf-8")
-        PROC=subprocess.Popen([sys.executable,str(RUNNER)]+args,cwd=ROOT,stdout=out,stderr=subprocess.STDOUT,
-                              creationflags=getattr(subprocess,"CREATE_NEW_PROCESS_GROUP",0))
+        try:
+            PROC=subprocess.Popen([sys.executable,str(RUNNER)]+args,cwd=ROOT,stdout=out,stderr=subprocess.STDOUT,
+                                  creationflags=getattr(subprocess,"CREATE_NEW_PROCESS_GROUP",0))
+        except OSError:
+            out.close()
+            raise
+        RESULT_SIMULATION_SESSION=simulate_result
         return True,"Otomasyon başlatıldı."
 
 def stop():
@@ -186,9 +201,13 @@ class Handler(BaseHTTPRequestHandler):
         if p.path=="/api/template":
             b=create_template();self.send_response(200);self.send_header("Content-Type","application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");self.send_header("Content-Disposition",'attachment; filename="MYS-Yolluk-Sablon.xlsx"');self.send_header("Content-Length",str(len(b)));self.end_headers();self.wfile.write(b);return
         if p.path=="/api/result":
-            # HTTP status başlığı Latin-1 kodlandığından hata nedeni ASCII tutulur.
-            if not RESULT_WORKBOOK.is_file():self.send_error(404,"Result workbook is not available yet.");return
-            b=RESULT_WORKBOOK.read_bytes();self.send_response(200);self.send_header("Content-Type","application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");self.send_header("Content-Disposition",'attachment; filename="MYS-Yolluk-Sonuclari.xlsx"');self.send_header("Content-Length",str(len(b)));self.end_headers();self.wfile.write(b);return
+            # Başlatma sırasında sonuç silinmesine karşı hazır olma kontrolü ve okumayı kilitle.
+            with LOCK:
+                if not status()["resultWorkbookReady"]:
+                    # HTTP status başlığı Latin-1 kodlandığından hata nedeni ASCII tutulur.
+                    self.send_error(404,"Result workbook is not available for this panel session.");return
+                b=RESULT_WORKBOOK.read_bytes()
+            self.send_response(200);self.send_header("Content-Type","application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");self.send_header("Content-Disposition",'attachment; filename="MYS-Yolluk-Sonuclari.xlsx"');self.send_header("Content-Length",str(len(b)));self.end_headers();self.wfile.write(b);return
         if p.path=="/api/status":self.sendj(status());return
         if p.path=="/api/log":self.sendj({"lines":logs()});return
         self.send_error(404)
@@ -222,6 +241,8 @@ class Handler(BaseHTTPRequestHandler):
                 temporary=UPLOADED_WORKBOOK.with_suffix(".uploading")
                 temporary.write_bytes(workbook_data)
                 temporary.replace(UPLOADED_WORKBOOK)
+                # Yeni kaynak dosyadan sonuç oluşturulana kadar önceki Excel sonucunu sunma.
+                reset_result_workbook()
             except (ValueError,OSError) as exc:
                 self.sendj({"ok":False,"message":str(exc)},400);return
             self.sendj({"ok":True,"message":"Excel doğrulandı ve yüklendi. Panelde başlatılan işlemler bu dosyayı kullanacak."});return
@@ -232,6 +253,8 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self,*args):pass
 
 if __name__=="__main__":
+    # Uygulama açıldığında diskte kalan önceki çalıştırmanın çıktısını geçersiz kıl.
+    reset_result_workbook()
     LOG.parent.mkdir(parents=True,exist_ok=True)
     if LOG.exists() and LOG.stat().st_size:
         archive=ROOT/"logs"/"archive";archive.mkdir(parents=True,exist_ok=True)
