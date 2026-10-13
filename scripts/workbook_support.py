@@ -47,6 +47,7 @@ def validate_workbook(data):
         required_groups = (
             ("TC NO", "TCKN"),
             ("GEÇ. GÖREV TARİHİ", "GEÇ GÖREV TARİHİ"),
+            ("GÜN SAYISI", "GUN SAYISI"),
             ("IBAN",),
             ("GÜNDELİĞİ", "GUNDELIGI"),
             ("SIRANO", "SIRA NO"),

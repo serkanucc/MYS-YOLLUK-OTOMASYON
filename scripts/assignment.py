@@ -44,6 +44,19 @@ def _range_days(year,month,lo,hi):
         raise ValueError(f"Gün aralığı ayı aşıyor: {hi} > {year}-{month:02d} son günü {last}")
     return [datetime(year,month,d).date() for d in range(lo,hi+1)]
 
+def validate_day_count(dates,raw):
+    # GÜN SAYISI tarih listesinin/range'in dahilî gün sayısıyla aynı olmalı.
+    try:
+        numeric=float(raw)
+    except (TypeError,ValueError):
+        raise ValueError("GÜN SAYISI pozitif tam sayı olmalı.")
+    if not numeric.is_integer() or numeric<1:
+        raise ValueError("GÜN SAYISI pozitif tam sayı olmalı.")
+    count=int(numeric)
+    if count!=len(dates):
+        raise ValueError(f"GÜN SAYISI {count}; tarih alanı {len(dates)} görev günü içeriyor.")
+    return count
+
 
 def duty_period(raw):
     dates=parse_duty_dates(raw)
@@ -82,4 +95,3 @@ def classify_candidates(candidates, assignment):
 def split_candidates(matches):
     return ([m for m in matches if m.get("relation") in ("EXACT","OVERLAP")],
             [m for m in matches if m.get("relation")=="AMBIGUOUS"])
-

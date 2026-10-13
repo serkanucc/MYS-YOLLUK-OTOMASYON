@@ -1,7 +1,7 @@
 import json,os,re,shutil,subprocess,time,argparse
 from pathlib import Path
 import openpyxl
-from assignment import assignment_id,classify_candidates,split_candidates,TRAVEL_TYPE,duty_period
+from assignment import assignment_id,classify_candidates,split_candidates,TRAVEL_TYPE,duty_period,validate_day_count
 from playwright_connection import has_green_group,launch_connection_setup,resolve_cli_js
 from workbook_support import initialize_result_workbook,simulated_yolluk_number,write_yolluk_number
 
@@ -229,19 +229,20 @@ def people():
             if n in h:return h.index(n)
         raise RuntimeError("Excel sütunu eksik: "+names[0])
     ti,di,ii,ai,ri=ci("TC NO","TCKN"),ci("GEÇ. GÖREV TARİHİ","GEÇ GÖREV TARİHİ"),ci("IBAN"),ci("GÜNDELİĞİ","GUNDELIGI"),ci("SIRANO","SIRA NO")
-    # GÜN SAYISI indeksini bir kez hesapla (önceden her satırda yeniden aranıyordu -> verimsiz).
-    gsi=ci("GÜN SAYISI","GUN SAYISI") if ("GÜN SAYISI" in h or "GUN SAYISI" in h) else None
+    # GÜN SAYISI her satırda tarih alanındaki dahilî görev günleriyle tutarlı olmalı.
+    gsi=ci("GÜN SAYISI","GUN SAYISI")
     out=[];skipped=[]
     for excel_row,r in enumerate(rows[1:],start=2):
         if not any(x is not None and str(x).strip() for x in r):continue
         try:
             # Bir satır bozuk/format-dışıysa TÜM listeyi çökertme; o satırı atla ve logla.
             dates,start,end=duty_period(r[di])
+            day_count=validate_day_count(dates,r[gsi])
             iban_value=str(r[ii] or "").strip()
             if not valid_tr_iban(iban_value):
                 raise RuntimeError(f"IBAN biçimi/checksum geçersiz: {iban_value!r}")
             x={"row":r[ri],"excelRow":excel_row,"tckn":r[ti],"iban":iban_value,"daily":r[ai],
-               "dayCount":(r[gsi] if gsi is not None else None),
+               "dayCount":day_count,
                "dutyDates":str(r[di]).strip(),"actualDutyDates":[d.strftime("%d/%m/%Y") for d in dates],
                "start":start,"end":end,"travelType":TRAVEL_TYPE,"amirTckn":amir_tckn}
             x["assignmentId"]=assignment_id(x);out.append(x)

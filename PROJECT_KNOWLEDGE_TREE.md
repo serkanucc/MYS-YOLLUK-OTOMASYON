@@ -78,7 +78,7 @@ Excel → stage1-live-run.py (motor) → playwright-cli -s=chrome-main → Chrom
 ### tests/
 | Dosya | Rol |
 |---|---|
-| `test-assignment.py` | `assignment_id` + `classify_candidates` (EXACT/OVERLAP). |
+| `test-assignment.py` | Tarih biçimleri, dahilî gün sayısı doğrulaması, `assignment_id` + `classify_candidates` (EXACT/OVERLAP). |
 | `test-read-amir.py` | `read_amir_tckn` (2. sayfa, TCKN temizliği). |
 | `test-stage1-runner-policy.py` | Gerçek tamamlanan kaydı atlama ve simülasyonun tekrar çalışabilmesi. |
 
@@ -151,6 +151,17 @@ personel döndürür; geçersizse Ad Soyad/IBAN/Birim Amiri alanları DOM'da hi�
 
 
 ## 8. DEĞİŞİKLİK GÜNLÜĞÜ (CHANGELOG) — en yenisi üstte
+
+### 2026-10-12 — Excel görev tarihi ve gün sayısı kuralı
+Amaç: Kısa tarih biçimlerini açık bir kurala bağla ve Excel'deki gün sayısı
+tarihlerin ürettiği görev günleriyle çelişirse yanlış satırı işleme.
+
+| # | Dosya | Değişiklik | Neden / Etki |
+|---|---|---|---|
+| 1 | scripts/assignment.py, scripts/stage1-live-run.py | Aynı ay gün listesi ve iki ucu dahil gün aralığı sayılır; `GÜN SAYISI` pozitif tam sayı ve hesapla aynı olmalı. | Tarih aralığı ile bildirilen gün adedi uyuşmazsa satır loglanıp atlanır. |
+| 2 | scripts/workbook_support.py | Excel yükleme doğrulamasında `GÜN SAYISI` başlığı zorunlu. | Panelden yüklenen şablonun zorunlu alanı eksikse erken uyarı verir. |
+| 3 | tests/test-assignment.py | Noktalı kısa liste, dahilî aralık, doğru/yanlış/boş gün sayısı senaryoları eklendi. | Kullanıcıyla kararlaştırılan tarih kuralını korur. |
+| 4 | README.md | Tercih edilen kısa tarih yazımları ve 03–13 örneğinin 11 gün olduğu belgelendi. | Excel'e veri giriş biçimi netleşir. |
 
 ### 2026-10-12 — Önceki simülasyonun yeni testi atlamasını önleme
 Amaç: Kuru test ve form doldurma düğmeleri önceki SIMULATED_COMPLETED checkpoint'inde

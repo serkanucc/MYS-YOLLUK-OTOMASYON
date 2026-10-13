@@ -35,6 +35,20 @@ assert template_headers == [
 ]
 assert template_workbook.worksheets[0].max_row == 1
 template_workbook.close()
+
+# Gün sayısı doğrulaması için başlık Excel yüklemesinde zorunlu olmalı.
+without_day_count = openpyxl.load_workbook(BytesIO(template))
+without_day_count.worksheets[0].delete_cols(13)
+buffer = BytesIO()
+without_day_count.save(buffer)
+without_day_count.close()
+try:
+    validate_workbook(buffer.getvalue())
+except ValueError as error:
+    assert "GÜN SAYISI" in str(error)
+else:
+    raise AssertionError("GÜN SAYISI başlığı olmayan Excel kabul edildi")
+
 try:
     runner.read_amir_tckn(openpyxl.load_workbook(BytesIO(template)))
 except RuntimeError as error:

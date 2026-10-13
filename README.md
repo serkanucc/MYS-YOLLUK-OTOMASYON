@@ -50,6 +50,13 @@ Sonuç dosyası yalnız mevcut panel oturumunda başarıyla tamamlanan simülasy
 indirilebilir; panel yeniden başlatıldığında veya yeni Excel yüklendiğinde önceki
 sonuç geçersiz kılınır.
 
+Görev tarihi alanında aynı ayın ayrı günlerini `03,10,25/09/2026` (eşdeğer olarak
+`03.10.25/09/2026`), aynı ay içindeki kesintisiz gün aralığını `03-13/09/2026`
+şeklinde yazabilirsiniz. Aralık iki ucu da kapsar; bu örnek 11 görev günüdür.
+`GÜN SAYISI` sütununa da 11 yazılmalıdır. Program tarih alanındaki günleri sayıp bu
+sütunla karşılaştırır; boş veya farklı sayı olan satırı başlatmaz ve logda nedenini
+gösterir. `GÜN SAYISI` bu aşamada MYS formuna ayrıca girilmez; tutarlılık kontrolüdür.
+
 Otomasyon başlangıcında `chrome-main` ve Chrome'daki yeşil Playwright grubu kontrol
 edilir. `autoStartPlaywrightConnection` açıkken bağlantı hazır değilse proje içindeki
 Playwright bağlantı BAT'ı bir kez başlatılır; hazır bağlantıda yeni Allow & select
