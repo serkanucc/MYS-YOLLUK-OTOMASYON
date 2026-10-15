@@ -19,7 +19,7 @@ RESULT_WORKBOOK=ROOT/"data"/"Yolluk Sonuc.xlsx"
 MAX_WORKBOOK_BYTES=20*1024*1024
 PROC=None
 RESULT_SIMULATION_SESSION=False
-LOCK=threading.Lock()
+LOCK=threading.RLock()
 
 def read_json(p,default):
     try:return json.loads(p.read_text(encoding="utf-8-sig"))
@@ -29,9 +29,17 @@ def status():
     d=read_json(CHECK,{"records":{},"lastAssignment":None})
     records=d.get("records",{})
     last=records.get(d.get("lastAssignment"),{})
-    runner_running=PROC is not None and PROC.poll() is None
-    return {
-        "stage":d.get("stage","STAGE1"),
+    with LOCK:
+        runner_running = PROC is not None and PROC.poll() is None
+        result_ready = (
+            RESULT_SIMULATION_SESSION 
+            and PROC is not None 
+            and not runner_running 
+            and PROC.returncode == 0 
+            and RESULT_WORKBOOK.is_file()
+        )
+        return {
+            "stage": d.get("stage", "STAGE1"),
         "lastAssignment":d.get("lastAssignment"),
         "last":last,
         "records":records,
@@ -41,7 +49,10 @@ def status():
         # Yalnız bu panel oturumunda başlatılıp başarıyla biten simülasyon indirilebilir.
         "resultWorkbookReady":RESULT_SIMULATION_SESSION and PROC is not None and not runner_running
             and PROC.returncode==0 and RESULT_WORKBOOK.is_file(),
-        "liveLocked":not (read_json(CFG,{}).get("liveSubmissionEnabled",False) and not read_json(CFG,{}).get("stopBeforeLiveSubmit",True))
+        "liveLocked": not (
+                read_json(CFG, {}).get("liveSubmissionEnabled", False) 
+                and not read_json(CFG, {}).get("stopBeforeLiveSubmit", True)
+            ),
     }
 
 def logs(n=120):

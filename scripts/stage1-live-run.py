@@ -5,6 +5,50 @@ from assignment import assignment_id,classify_candidates,split_candidates,TRAVEL
 from playwright_connection import has_green_group,launch_connection_setup,resolve_cli_js
 from workbook_support import initialize_result_workbook,simulated_yolluk_number,write_yolluk_number
 
+def find_excel_workbook(root: Path, cfg: dict) -> Path:
+    """
+    Kullanıcının upload ettiği her isimde Excel'i bulur.
+    Öncelik sırası:
+    1. Runtime config'den sourceWorkbook (mutlak yol olabilir)
+    2. Ana config sourceWorkbook (relative -> root ile çözümle)
+    3. data/ klasöründeki .xlsx dosyalarından ilkini kullan (dosya ismi önemli değil)
+    4. None döndür (çağıranın kontrol etmesi gerekiyor)
+    """
+    EXCEL_CANDIDATES = []
+    
+    # 1. Runtime config (varsa)
+    runtime_cfg = root / "config" / "runner-settings.runtime.json"
+    if runtime_cfg.exists():
+        try:
+            rs = json.loads(runtime_cfg.read_text(encoding="utf-8-sig"))
+            if rs.get("sourceWorkbook"):
+                p = Path(rs["sourceWorkbook"])
+                EXCEL_CANDIDATES.append(p if p.is_absolute() else root / p)
+        except Exception: pass
+    
+    # 2. Ana config sourceWorkbook
+    cfg_source = cfg.get("sourceWorkbook")
+    if cfg_source:
+        p = Path(cfg_source)
+        EXCEL_CANDIDATES.append(p if p.is_absolute() else root / p)
+    
+    # 3. data/ klasöründeki tüm .xlsx'yi tara (dosya ismi önemli değil, var olsun)
+    data_dir = root / "data"
+    if data_dir.exists():
+        for f in sorted(data_dir.glob("*.xlsx")):
+            # uploaded-workbook.xlsx ve Yolluk Sonuc.xlsx'yi atla
+            if f.name in ["uploaded-workbook.xlsx", "Yolluk Sonuc.xlsx"]:
+                continue
+            if f not in EXCEL_CANDIDATES:
+                EXCEL_CANDIDATES.append(f)
+    
+    # 4. Bulunan ilk var olanı döndür
+    for path in EXCEL_CANDIDATES:
+        if path.exists():
+            return path
+    
+    return None
+
 ROOT=Path(__file__).resolve().parents[1]
 CFG=json.loads((ROOT/"config/runner-settings.json").read_text(encoding="utf-8-sig"))
 FIXED=json.loads((ROOT/"config/fixed-values.json").read_text(encoding="utf-8-sig"))
@@ -18,7 +62,7 @@ if RUNTIME_CFG.exists():
     runtime_settings=json.loads(RUNTIME_CFG.read_text(encoding="utf-8-sig"))
     if runtime_settings.get("sourceWorkbook"):
         EXCEL_CANDIDATES.append(runtime_settings["sourceWorkbook"])
-EXCEL_CANDIDATES.append(CFG["sourceWorkbook"])
+EXCEL=find_excel_workbook(ROOT, CFG)  # Dinamik Excel yol bulma
 EXCEL_PATHS=[]
 for workbook in EXCEL_CANDIDATES:
     path=Path(workbook)

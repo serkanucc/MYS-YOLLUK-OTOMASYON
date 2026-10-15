@@ -30,40 +30,57 @@ PERSONNEL_HEADERS = (
 
 
 def validate_workbook(data):
-    # Yüklenen Excel'in motorun beklediği iki sayfayı ve alan başlıklarını içerdiğini doğrula.
+    # Yüklenen Excel'in motorun beklediği iki sayfayı ve alan başlıklarını doğrula.
     try:
         workbook = openpyxl.load_workbook(BytesIO(data), read_only=True, data_only=True)
     except (BadZipFile, InvalidFileException, OSError, ValueError, KeyError) as exc:
         raise ValueError("Dosya geçerli veya okunabilir bir .xlsx çalışma kitabı değil.") from exc
+
     try:
         if len(workbook.worksheets) < 2:
-            raise ValueError("Excel dosyasında Personel ve Birim Amiri olmak üzere en az 2 sayfa olmalı.")
+            raise ValueError("Excel dosyasında Personel ve Birim Amiri sayfaları bulunmalıdır.")
 
-        headers = {
-            str(value).strip().upper()
-            for value in next(workbook.worksheets[0].iter_rows(max_row=1, values_only=True), ())
+        # Başlıkları normalize et: büyük harf ve boşlukları kaldır.
+        raw_headers = {
+            str(value).strip().upper().replace(" ", "")
+            for value in next(
+                workbook.worksheets[0].iter_rows(max_row=1, values_only=True), ()
+            )
             if value is not None
         }
+
         required_groups = (
-            ("TC NO", "TCKN"),
-            ("GEÇ. GÖREV TARİHİ", "GEÇ GÖREV TARİHİ"),
-            ("GÜN SAYISI", "GUN SAYISI"),
-            ("IBAN",),
-            ("GÜNDELİĞİ", "GUNDELIGI"),
-            ("SIRANO", "SIRA NO"),
+            ("TC NO/TCKN", ("TCNO", "TCKN")),
+            ("GEÇ. GÖREV TARİHİ/GEÇ GÖREV TARİHİ", ("GEÇ.GÖREVTARİHİ", "GEÇGÖREVTARİHİ")),
+            ("GÜN SAYISI/GUN SAYISI", ("GÜNSAYISI", "GUNSAYISI")),
+            ("IBAN", ("IBAN",)),
+            ("GÜNDELİĞİ/GUNDELIGI", ("GÜNDELİĞİ", "GUNDELIGI")),
+            ("SIRANO/SIRA NO", ("SIRANO",)),
         )
-        missing = ["/".join(group) for group in required_groups if not headers.intersection(group)]
+
+        missing = [
+            label
+            for label, aliases in required_groups
+            if not any(header in raw_headers for header in aliases)
+        ]
         if missing:
-            raise ValueError("Personel sayfasında zorunlu sütun(lar) eksik: " + ", ".join(missing))
+            raise ValueError(
+                "Personel sayfasında zorunlu sütun(lar) eksik: " + ", ".join(missing)
+            )
 
         amir_sheet = workbook.worksheets[1]
         amir_label_found = any(
-            value is not None and re.search(r"(?:TC|TCKN)$", str(value).strip(), re.IGNORECASE)
-            for row in amir_sheet.iter_rows(min_row=1, max_row=min(amir_sheet.max_row, 20), values_only=True)
+            value is not None
+            and re.search(r"(?:TC|TCKN)$", str(value).strip(), re.IGNORECASE)
+            for row in amir_sheet.iter_rows(
+                min_row=1, max_row=min(amir_sheet.max_row, 20), values_only=True
+            )
             for value in row
         )
         if not amir_label_found:
-            raise ValueError("Birim Amiri sayfasının ilk 20 satırında TC/TCKN etiketi bulunamadı.")
+            raise ValueError(
+                "Birim Amiri sayfasının ilk 20 satırında TC/TCKN etiketi bulunamadı."
+            )
     finally:
         workbook.close()
 
