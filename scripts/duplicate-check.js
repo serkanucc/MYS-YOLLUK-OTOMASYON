@@ -34,16 +34,35 @@ if(!table){
   const tables=[...document.querySelectorAll("table")].map(t=>({id:t.id,head:t.innerText.slice(0,180)})).slice(0,20);
   throw Error("Sorgula sonrası yolluk sonuç tablosu 10 saniye içinde bulunamadı; URL="+location.href+"; tables="+JSON.stringify(tables));
 }
-let rows=[],lastSig="",stable=0;
+let rows=[],lastSig=null,stable=0,emptyStable=0;
+const isVisible=e=>{const r=e.getBoundingClientRect();return r.width>0&&r.height>0;};
 for(let i=0;i<40;i++){
   await sleep(250);
-  rows=[...table.querySelectorAll("tbody tr")];
+  table=document.querySelector("#yollukSorgulaDataTable");
+  if(!table)continue;
+  rows=[...table.querySelectorAll("tbody tr")].filter(r=>!r.querySelector(".dataTables_empty")&&!/^(no data available in table|no matching records|no records found|kayit bulunamadi|kayit bulunmamaktadir|veri bulunamadi|gosterilecek veri bulunamadi|eslesen kayit yok)$/i.test(norm(r.innerText)));
   const sig=rows.map(r=>r.innerText.trim()).join("\n");
-  if(sig===lastSig) stable++; else stable=0;
+  const tableText=norm(table.innerText);
+  const explicitEmpty=!!table.querySelector(".dataTables_empty,td.dataTables_empty,[data-empty-state='true']")||/(no data available in table|no matching records|no records found|kayit bulunamadi|kayit bulunmamaktadir|veri bulunamadi|gosterilecek veri bulunamadi|eslesen kayit yok)/i.test(tableText);
+  const loading=[...document.querySelectorAll(".dataTables_processing,[aria-busy='true'],.loading,.spinner")].some(isVisible);
+  if(rows.length){
+    if(sig===lastSig)stable++;else stable=0;
+    emptyStable=0;
+    if(stable>=2)break;
+  }else{
+    stable=0;
+    // Boş sonuç ilk render’da geçici olabilir. Açık boş-durum işareti 7.5 sn
+    // boyunca görünür ve yükleme göstergesi yoksa ancak o zaman sıfır kayıt kabul edilir.
+    if(explicitEmpty&&!loading)emptyStable++;else emptyStable=0;
+    if(emptyStable>=30)break;
+  }
   lastSig=sig;
-  if(stable>=2) break;
 }
-const rows2=[...document.querySelectorAll("#yollukSorgulaDataTable tbody tr")];
+const rows2=[...document.querySelectorAll("#yollukSorgulaDataTable tbody tr")].filter(r=>!r.querySelector(".dataTables_empty")&&!/^(no data available in table|no matching records|no records found|kayit bulunamadi|kayit bulunmamaktadir|veri bulunamadi|gosterilecek veri bulunamadi|eslesen kayit yok)$/i.test(norm(r.innerText)));
+if(!rows2.length&&emptyStable<30){
+  const tableText=document.querySelector("#yollukSorgulaDataTable")?.innerText||"";
+  throw Error("Sorgu sonucu boş olduğu güvenle doğrulanamadı; olası yükleme/gecikme nedeniyle devam edilmiyor. URL="+location.href+"; table="+tableText.slice(0,500));
+}
 return {count:rows2.length,candidates:rows2.map(r=>({text:r.innerText.trim(),
 links:[...r.querySelectorAll("a")].map(a=>a.href).filter(Boolean)}))};
 })()

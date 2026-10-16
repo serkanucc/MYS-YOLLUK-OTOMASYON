@@ -165,6 +165,7 @@ async function uploadWorkbook(){
 }
 function stateText(s){
  let x=s.last||{},st=x.status||'IDLE';
+ if(!s.runnerRunning&&['PROCESSING','SUBMITTING','SUBMITTED_UNVERIFIED'].includes(st))return ['Önceki işlem yarım kaldı — doğrulama gerekli','INTERRUPTED'];
  const map={PROCESSING:'İşlem yapılıyor',WAITING_FOR_USER_APPROVAL:'Eski durum',DUPLICATE_APPROVED:'Eski durum',DUPLICATE_WARNING_CONTINUING:'Mevcut kayıt var — devam ediliyor (bilgi)',READY_TO_SUBMIT:'Form hazır — gönderilmedi',SIMULATED_COMPLETED:'Test tamamlandı — sahte numara',ERROR:'İŞLEM DURDU — HATA',STAGE1_COMPLETED:'Tamamlandı',SUBMITTING:'Canlı kayıt gönderiliyor',SUBMITTED_UNVERIFIED:'Gönderildi — doğrulama bekleniyor',AMBIGUOUS_DUPLICATE:'Tarih belirsizliği — bilgiyle devam ediliyor'};
  return [map[st]||st,st]
 }
@@ -189,6 +190,7 @@ async function refresh(){
  let l=await api('/api/log');let box=document.getElementById('log');let old=box.scrollTop,atBottom=box.scrollHeight-box.clientHeight-old<80;box.textContent=l.lines.length?l.lines.join('\n'):'Log bekleniyor... (günlük boş — işlem başlayınca satırlar buraya düşer)';if(atBottom)box.scrollTop=box.scrollHeight;
  let warning='';
  if(st==='ERROR')warning='⛔ İŞLEM DURDU: '+(x.message||'Hata oluştu.');
+ else if(st==='INTERRUPTED')warning='⚠ Önceki otomasyon kaydı yarım kalmış görünüyor; motor çalışmıyor. Aynı görevi tekrar başlatmadan önce MYS kayıtlarını Sorgula ile doğrulayın.';
  else if(st==='WAITING_FOR_USER_APPROVAL')warning='⚠ Eski durum: bu proje artık çakışma için kullanıcı onayı beklemiyor.';
  else if(st==='DUPLICATE_WARNING_CONTINUING')warning='ℹ BİLGİ: Aynı personel için mevcut yolluk kaydı bulundu (aynı tarihlerde dahi olabilir). Normal durum; onay beklemeden devam ediliyor.';
  else if(st==='AMBIGUOUS_DUPLICATE')warning='ℹ BİLGİ: Mevcut kayıt tarihleri güvenle ayrıştırılamadı; onay beklemeden devam ediliyor.';
